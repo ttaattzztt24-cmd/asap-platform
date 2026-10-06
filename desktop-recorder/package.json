@@ -1,8 +1,8 @@
 {
-  "name": "asap-meeting-recorder",
-  "productName": "ASAP Meeting Recorder",
+  "name": "kiku",
+  "productName": "Kiku",
   "version": "0.1.0",
-  "description": "Zoom / Google Meet の会議を検知して、PCの音声とマイクを自動で録音するデスクトップアプリ（録音時間の上限なし）",
+  "description": "Kiku — Zoom / Google Meet の会議を自動で録音するデスクトップアプリ（録音時間の上限なし）",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",

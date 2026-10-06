@@ -44,19 +44,19 @@ jobs:
           mkdir -p out
           for pair in "mac-arm64:AppleSilicon" "mac:Intel"; do
             dir="dist/${pair%%:*}"; label="${pair##*:}"
-            app="$dir/ASAP Meeting Recorder.app"
+            app="$dir/Kiku.app"
             codesign --force --deep --sign - "$app"
             stage="$(mktemp -d)"
             cp -R "$app" "$stage/"
             ln -s /Applications "$stage/Applications"
-            hdiutil create -volname "ASAP Meeting Recorder" -srcfolder "$stage" -ov -format UDZO \
-              "out/ASAP-Meeting-Recorder-mac-$label.dmg"
+            hdiutil create -volname "Kiku" -srcfolder "$stage" -ov -format UDZO \
+              "out/Kiku-mac-$label.dmg"
           done
           ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ASAP-Meeting-Recorder-mac
+          name: Kiku-mac
           path: desktop-recorder/out/*.dmg
 
       # Publish to a fixed release so there is always one simple download page.
@@ -67,5 +67,5 @@ jobs:
           tag=desktop-recorder-latest
           gh release delete "$tag" --yes --cleanup-tag || true
           gh release create "$tag" out/*.dmg --prerelease --target "$GITHUB_SHA" \
-            --title "ASAP Meeting Recorder (Mac)" \
+            --title "Kiku (Mac)" \
             --notes "Apple Silicon (M1/M2/M3/M4) のMacは AppleSilicon、それ以外は Intel をダウンロードしてください。"

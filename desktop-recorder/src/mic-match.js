@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const OWN_APP = /ASAP Meeting Recorder|Electron\.app|\/electron\//i;
+const OWN_APP = /\/Kiku\.app\/|Kiku Helper|ASAP Meeting Recorder|Electron\.app|\/electron\//i;
 const APP_PROCESS = {
   zoom: /zoom\.us/i,
   meet: /Google Chrome|Safari|WebKit|Microsoft Edge|Brave Browser|Arc\.app|Firefox/i,

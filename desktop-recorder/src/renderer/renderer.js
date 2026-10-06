@@ -412,7 +412,7 @@ api.onBrowserProblem(({ browser, kind }) => {
     box.textContent =
       `Google Meetを検知するには「${browser}」の許可が必要です。` +
       `システム設定 →「プライバシーとセキュリティ」→「オートメーション」で、` +
-      `ASAP Meeting Recorder の下の「${browser}」をオンにしてから、アプリを開き直してください。`;
+      `Kiku の下の「${browser}」をオンにしてから、アプリを開き直してください。`;
   } else if (kind === 'js-disabled') {
     const where =
       browser === 'Safari'

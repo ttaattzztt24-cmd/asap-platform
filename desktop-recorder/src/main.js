@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
   micDeviceId: '',
   micLabel: '',
   openAtLogin: false,
-  saveDir: path.join(app.getPath('documents'), 'ASAP Recordings'),
+  saveDir: path.join(app.getPath('documents'), 'Kiku Recordings'),
 };
 
 let settings = { ...DEFAULT_SETTINGS };
@@ -57,7 +57,22 @@ function log(...parts) {
   } catch {}
 }
 
+// The app used to be called "ASAP Meeting Recorder"; carry its settings and log
+// over once so the recordings folder and choices survive the rename.
+function migrateFromOldName() {
+  const oldDir = path.join(app.getPath('appData'), 'ASAP Meeting Recorder');
+  for (const file of ['settings.json', 'recorder.log']) {
+    const from = path.join(oldDir, file);
+    const to = path.join(app.getPath('userData'), file);
+    if (fs.existsSync(from) && !fs.existsSync(to)) {
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.copyFileSync(from, to);
+    }
+  }
+}
+
 function loadSettings() {
+  migrateFromOldName();
   try {
     const saved = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
     // Before micMode existed, a non-empty micDeviceId meant a manually chosen mic.
@@ -67,6 +82,7 @@ function loadSettings() {
     settings = { ...DEFAULT_SETTINGS };
   }
   fs.mkdirSync(settings.saveDir, { recursive: true });
+  app.setLoginItemSettings({ openAtLogin: settings.openAtLogin, openAsHidden: true });
 }
 
 function saveSettings() {
@@ -91,7 +107,7 @@ function timestampName(date) {
 function updateTray() {
   if (!tray) return;
   const recording = Boolean(current);
-  tray.setToolTip(recording ? 'ASAP Recorder — 録音中' : 'ASAP Recorder — 待機中');
+  tray.setToolTip(recording ? 'Kiku — 録音中' : 'Kiku — 待機中');
   if (process.platform === 'darwin') tray.setTitle(recording ? '● REC' : '');
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -120,7 +136,8 @@ function createWindow() {
     height: 640,
     minWidth: 640,
     minHeight: 480,
-    title: 'ASAP Meeting Recorder',
+    title: 'Kiku',
+    icon: path.join(__dirname, 'assets', 'icon-256.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -141,10 +158,11 @@ function createWindow() {
 }
 
 function createTray() {
-  // 16x16 red dot so the tray icon works without bundling image assets.
-  const icon = nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAWklEQVR4nGO4o6bGQAmmSDMhA3zuqKlVQbEPKQaAFN+8o6b2Hw3fxGYQNs3oGtGxDz4DsNmMzSVYDSDGdgxXIBtQRYIBVTQxgGIvUByIVIlGihMSVZIyfXMjADZZhxhxnB1QAAAAAElFTkSuQmCC'
-  );
+  // macOS: "...Template.png" is drawn in the menu bar's own color (light/dark).
+  const icon =
+    process.platform === 'darwin'
+      ? nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayTemplate.png'))
+      : nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon-256.png')).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
   tray.on('click', showWindow);
   updateTray();
