@@ -196,7 +196,7 @@ async function refreshRecordings() {
     if (!r.recording) {
       const audio = document.createElement('audio');
       audio.controls = true;
-      audio.preload = 'none';
+      audio.preload = 'metadata';
       audio.src = r.fileUrl;
       actions.append(audio);
     }

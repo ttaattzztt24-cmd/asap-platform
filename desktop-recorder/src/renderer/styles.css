@@ -72,11 +72,12 @@ button.danger { color: var(--rec); }
 .folder-row code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .list-head { display: flex; justify-content: space-between; align-items: center; }
 .recordings { list-style: none; margin: 0; padding: 0; }
-.recordings li { border-top: 1px solid var(--border); padding: 12px 0; display: grid; gap: 8px; }
+.recordings li { border-top: 1px solid var(--border); padding: 12px 0; display: grid; gap: 8px; min-width: 0; }
 .recordings li:first-child { border-top: none; }
 .rec-meta { display: flex; justify-content: space-between; font-size: 13px; gap: 8px; flex-wrap: wrap; }
 .rec-meta .sub { color: var(--muted); }
-.rec-actions { display: flex; gap: 8px; align-items: center; }
-.rec-actions audio { flex: 1; height: 32px; }
+.rec-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.rec-actions audio { flex: 1 1 260px; min-width: 0; height: 36px; }
+.rec-actions button { flex: none; }
 .empty { color: var(--muted); font-size: 13px; }
 .error { color: var(--rec); font-size: 13px; margin: 8px 0 0; white-space: pre-line; }

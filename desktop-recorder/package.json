@@ -6,7 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/renderer/renderer.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/webm-duration.js && node --check src/renderer/renderer.js",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win"
   },

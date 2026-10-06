@@ -14,6 +14,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const { MeetingDetector } = require('./meeting-detector');
+const { fixWebmDuration } = require('./webm-duration');
 
 // macOS: allow system-audio loopback capture through ScreenCaptureKit (macOS 13+).
 if (process.platform === 'darwin') {
@@ -233,9 +234,17 @@ function registerIpc() {
     current = null;
     const endedAt = new Date();
     rec.meta.endedAt = endedAt.toISOString();
-    rec.meta.durationSec = Math.round((endedAt - new Date(rec.meta.startedAt)) / 1000);
+    const durationMs = endedAt - new Date(rec.meta.startedAt);
+    rec.meta.durationSec = Math.round(durationMs / 1000);
     return new Promise((resolve) => {
-      rec.stream.end(() => {
+      rec.stream.end(async () => {
+        // Write the total length into the file so players can show it and seek.
+        try {
+          await fixWebmDuration(rec.filePath, durationMs);
+          rec.meta.durationFixed = true;
+        } catch (err) {
+          log('duration fix failed', rec.filePath, err.message);
+        }
         log('recording saved', rec.filePath, `${rec.meta.durationSec}s`);
         fs.writeFileSync(rec.filePath.replace(/\.webm$/, '.json'), JSON.stringify(rec.meta, null, 2));
         updateTray();
@@ -258,8 +267,31 @@ function registerIpc() {
   });
 }
 
-app.whenReady().then(() => {
+// Recordings made before the duration fix existed have no total length; patch them once.
+async function fixOldRecordings() {
+  for (const r of listRecordings()) {
+    const metaPath = r.filePath.replace(/\.webm$/, '.json');
+    let meta;
+    try {
+      meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (meta.durationFixed || !meta.durationSec || r.recording) continue;
+    try {
+      await fixWebmDuration(r.filePath, meta.durationSec * 1000);
+      meta.durationFixed = true;
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+      log('duration fixed for old recording', r.filePath);
+    } catch (err) {
+      log('duration fix failed', r.filePath, err.message);
+    }
+  }
+}
+
+app.whenReady().then(async () => {
   loadSettings();
+  await fixOldRecordings();
   registerIpc();
   setupDisplayMediaHandler();
   createWindow();
