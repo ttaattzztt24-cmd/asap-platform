@@ -13,6 +13,7 @@ const {
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { MeetingDetector } = require('./meeting-detector');
 const { fixWebmDuration } = require('./webm-duration');
 const { readAudioState, pickMeetingMic, labelMatches } = require('./mic-match');
@@ -203,7 +204,7 @@ function listRecordings() {
       return {
         name: f,
         filePath,
-        fileUrl: `file://${filePath.replace(/\\/g, '/')}`,
+        fileUrl: pathToFileURL(filePath).href, // correct on Windows (file:///C:/...) too
         size: stat.size,
         startedAt: meta.startedAt || stat.birthtime.toISOString(),
         endedAt: meta.endedAt || null,
@@ -436,7 +437,18 @@ async function fixOldRecordings() {
   }
 }
 
+// Windows shows notifications only for an app with an AppUserModelID matching
+// the installer's shortcut (electron-builder uses the appId).
+if (process.platform === 'win32') app.setAppUserModelId('ai.asap.meetingrecorder');
+
+// One Kiku at a time: a second launch just brings the window forward
+// (two copies would record every meeting twice).
+const isPrimaryInstance = app.requestSingleInstanceLock();
+if (!isPrimaryInstance) app.quit();
+else app.on('second-instance', () => showWindow());
+
 app.whenReady().then(async () => {
+  if (!isPrimaryInstance) return;
   loadSettings();
   await fixOldRecordings();
   registerIpc();

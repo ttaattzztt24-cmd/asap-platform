@@ -25,6 +25,25 @@ PLAUD Desktop と同じ使い方ができますが、**録音時間に上限は�
 録音は `書類/Kiku Recordings/`（以前のバージョンから使っている場合は `書類/ASAP Recordings/` のまま） に `2026-10-06_14-00-00.webm`（Opus形式、128kbps、約58MB/時間）として保存されます。
 同じ名前の `.json` ファイルには、開始時刻、終了時刻、長さが記録されます。
 
+## ダウンロード（Mac / Windows）
+
+最新版はいつも同じページにあります: https://github.com/ttaattzztt24-cmd/asap-platform/releases/tag/desktop-recorder-latest
+
+| パソコン | ファイル | 初めて開くとき |
+| --- | --- | --- |
+| Mac（M1〜M4） | `Kiku-mac-AppleSilicon.dmg` | 開いて Kiku を「Applications」へドラッグ。警告が出たら「システム設定 → プライバシーとセキュリティ」の「このまま開く」 |
+| Mac（Intel） | `Kiku-mac-Intel.dmg` | 同上 |
+| Windows 10 / 11 | `Kiku-Windows-Setup.exe` | ダブルクリックでインストール。「WindowsによってPCが保護されました」と出たら「詳細情報」→「実行」 |
+
+警告が出るのは、Apple / Microsoft の開発者署名をしていないためです（アプリ自体の問題ではありません）。署名すると警告はなくなります（Apple は年 99 ドル、Windows は署名サービスの契約が必要）。
+
+### Windows での違い
+
+- Zoom は、会議中だけ動く `CptHost.exe` か、「Zoom ミーティング」ウィンドウで会議を見分けます。
+- Google Meet は、ブラウザ（Chrome / Edge / Brave）で **Meet のタブが前面にあるとき** に見分けます。
+- 「登録した会議だけ」は、Google Meet は使えますが、Zoom は会議IDがわからないため、通知をクリックして録音してください。
+- マイクの自動選択は Mac のみです。Windows では「Windows の設定のマイク」か、設定で選んだマイクで録音します。
+
 ## 使い方（開発環境）
 
 [Node.js](https://nodejs.org/)（v20以上）をインストールしてから、以下を実行します。
@@ -45,7 +64,7 @@ npm run dist:win   # Windows 用 .exe
 
 ## 動作条件と初回設定
 
-- **Windows 10/11**: 追加の設定はいりません。
+- **Windows 10/11**: 追加の設定はいりません（初回に通知の許可を聞かれたら「許可」）。
 - **macOS 13 以降**: 初回の録音時に次の2つの許可を求められます。
   - 「システム設定 → プライバシーとセキュリティ → **画面収録とシステムオーディオ録音**」でアプリを許可（相手の声を録るために必要です）
   - 「**マイク**」を許可（自分の声を録るために必要です）

@@ -116,8 +116,21 @@ const listProcesses = () =>
     ? run('tasklist', ['/FO', 'CSV', '/NH'])
     : run('ps', ['-A', '-o', 'comm=']);
 
-async function detectZoom(processes) {
+// Windows: main-window titles of Zoom and Chromium browsers, one "name<TAB>title"
+// per line. Output is forced to UTF-8 so Japanese titles survive.
+const listWindowTitles = () =>
+  run('powershell', [
+    '-NoProfile',
+    '-Command',
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
+      'Get-Process Zoom,chrome,msedge,brave -ErrorAction SilentlyContinue | ' +
+      'Where-Object { $_.MainWindowTitle } | ForEach-Object { $_.ProcessName + "`t" + $_.MainWindowTitle }',
+  ]);
+const WIN_ZOOM_MEETING_TITLE = /^zoom\t\s*Zoom\s*(Meeting|ミーティング|会議)/im;
+
+async function detectZoom(processes, winTitles = '') {
   if (ZOOM_MEETING_PROCESS.test(processes)) return 'CptHost';
+  if (WIN_ZOOM_MEETING_TITLE.test(winTitles)) return 'window title';
   if (process.platform === 'darwin') {
     const out = await run('/usr/sbin/lsof', ['-nP', '-i', '4UDP']);
     const udp = out.split('\n').filter((line) => /^zoom/i.test(line)).length;
@@ -129,7 +142,7 @@ async function detectZoom(processes) {
 let lastBrowsers = null;
 let reportBrowsers = () => {};
 
-async function detectMeet(processes) {
+async function detectMeet(processes, winTitles = '') {
   if (process.platform === 'darwin') {
     const running = MAC_BROWSERS.filter(({ exe }) => exe.test(processes)).map(({ app }) => app).join(', ');
     if (running !== lastBrowsers) {
@@ -156,20 +169,20 @@ async function detectMeet(processes) {
     return found;
   }
   if (process.platform === 'win32') {
-    const titles = await run('powershell', [
-      '-NoProfile',
-      '-Command',
-      'Get-Process chrome,msedge,brave -ErrorAction SilentlyContinue | ForEach-Object { $_.MainWindowTitle }',
-    ]);
-    const meetCodes = [...titles.matchAll(/^Meet\s*[-–]\s*([a-z]{3}-[a-z]{4}-[a-z]{3})/gim)].map((m) => m[1].toLowerCase());
+    const meetCodes = [...winTitles.matchAll(/^(?:chrome|msedge|brave)\t\s*Meet\s*[-–]\s*([a-z]{3}-[a-z]{4}-[a-z]{3})/gim)].map((m) =>
+      m[1].toLowerCase()
+    );
     return { browser: meetCodes.length ? 'browser' : null, meetCodes, zoomUrls: [] };
   }
   return { browser: null, meetCodes: [], zoomUrls: [] };
 }
 
 async function detectMeeting() {
-  const processes = await listProcesses();
-  const [zoom, meet] = await Promise.all([detectZoom(processes), detectMeet(processes)]);
+  const [processes, winTitles] = await Promise.all([
+    listProcesses(),
+    process.platform === 'win32' ? listWindowTitles() : '',
+  ]);
+  const [zoom, meet] = await Promise.all([detectZoom(processes, winTitles), detectMeet(processes, winTitles)]);
   const tabs = { meetCodes: meet.meetCodes, zoomUrls: meet.zoomUrls };
   if (zoom) return { app: 'zoom', reason: zoom, ...tabs };
   if (meet.browser) return { app: 'meet', reason: meet.browser, ...tabs };
@@ -240,4 +253,4 @@ class MeetingDetector extends EventEmitter {
   }
 }
 
-module.exports = { MeetingDetector, detectMeeting, MEET_URL, MEET_TITLE, MEET_IN_CALL_JS, meetTabsScript, parseMeetTabs };
+module.exports = { MeetingDetector, detectMeeting, detectZoom, detectMeet, MEET_URL, MEET_TITLE, MEET_IN_CALL_JS, meetTabsScript, parseMeetTabs };

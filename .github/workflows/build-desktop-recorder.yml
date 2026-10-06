@@ -1,4 +1,4 @@
-name: Build desktop recorder (macOS)
+name: Build Kiku (macOS + Windows)
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
           lipo -archs native/bin/mic-in-use
 
       # Package the .app for Apple Silicon and Intel without a Developer ID.
-      - run: npx electron-builder --mac dir --arm64 --x64 -c.mac.identity=null
+      - run: npx electron-builder --mac dir --arm64 --x64 -c.mac.identity=null --publish never
 
       # Ad-hoc sign so macOS shows "unverified developer" (openable) instead of "damaged",
       # then wrap each .app in a .dmg with an Applications shortcut.
@@ -59,13 +59,58 @@ jobs:
           name: Kiku-mac
           path: desktop-recorder/out/*.dmg
 
-      # Publish to a fixed release so there is always one simple download page.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop-recorder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+
+      - run: npm run check
+
+      # One-click installer (per user, no admin rights needed).
+      - run: npx electron-builder --win nsis --x64 --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kiku-windows
+          path: desktop-recorder/dist/Kiku-Windows-Setup.exe
+
+  # Publish both platforms to one fixed release so there is always a single download page.
+  publish:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
       - name: Publish to release "desktop-recorder-latest"
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
+          ls -la out
           tag=desktop-recorder-latest
-          gh release delete "$tag" --yes --cleanup-tag || true
-          gh release create "$tag" out/*.dmg --prerelease --target "$GITHUB_SHA" \
-            --title "Kiku (Mac)" \
-            --notes "Apple Silicon (M1/M2/M3/M4) のMacは AppleSilicon、それ以外は Intel をダウンロードしてください。"
+          gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag || true
+          cat > notes.md <<'NOTES'
+          ## ダウンロード
+
+          | パソコン | ファイル |
+          | --- | --- |
+          | Mac（M1 / M2 / M3 / M4） | Kiku-mac-AppleSilicon.dmg |
+          | Mac（Intel） | Kiku-mac-Intel.dmg |
+          | Windows 10 / 11 | Kiku-Windows-Setup.exe |
+
+          Mac のチップは  メニュー →「このMacについて」で確認できます。
+          NOTES
+          gh release create "$tag" out/* --repo "$REPO" --prerelease --target "$GITHUB_SHA" \
+            --title "Kiku（Mac / Windows）" --notes-file notes.md
