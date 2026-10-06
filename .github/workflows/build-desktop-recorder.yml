@@ -1,0 +1,62 @@
+name: Build desktop recorder (macOS)
+
+on:
+  push:
+    branches: [main, claude/plaud-note-pro-desktop-9s0xyg]
+    paths: ['desktop-recorder/**', '.github/workflows/build-desktop-recorder.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop-recorder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+
+      # Package the .app for Apple Silicon and Intel without a Developer ID.
+      - run: npx electron-builder --mac dir --arm64 --x64 -c.mac.identity=null
+
+      # Ad-hoc sign so macOS shows "unverified developer" (openable) instead of "damaged",
+      # then wrap each .app in a .dmg with an Applications shortcut.
+      - name: Sign ad-hoc and create DMGs
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          for pair in "mac-arm64:AppleSilicon" "mac:Intel"; do
+            dir="dist/${pair%%:*}"; label="${pair##*:}"
+            app="$dir/ASAP Meeting Recorder.app"
+            codesign --force --deep --sign - "$app"
+            stage="$(mktemp -d)"
+            cp -R "$app" "$stage/"
+            ln -s /Applications "$stage/Applications"
+            hdiutil create -volname "ASAP Meeting Recorder" -srcfolder "$stage" -ov -format UDZO \
+              "out/ASAP-Meeting-Recorder-mac-$label.dmg"
+          done
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ASAP-Meeting-Recorder-mac
+          path: desktop-recorder/out/*.dmg
+
+      # Publish to a fixed release so there is always one simple download page.
+      - name: Publish to release "desktop-recorder-latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=desktop-recorder-latest
+          gh release delete "$tag" --yes --cleanup-tag || true
+          gh release create "$tag" out/*.dmg --prerelease --target "$GITHUB_SHA" \
+            --title "ASAP Meeting Recorder (Mac)" \
+            --notes "Apple Silicon (M1/M2/M3/M4) のMacは AppleSilicon、それ以外は Intel をダウンロードしてください。"
