@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; media-src 'self' file: blob:; style-src 'self'; script-src 'self'" />
+  <title>ASAP Meeting Recorder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>ASAP Meeting Recorder</h1>
+    <span id="zoomBadge" class="badge">Zoom: 未検出</span>
+  </header>
+
+  <main>
+    <section class="card status">
+      <div class="status-row">
+        <div>
+          <div id="recState" class="rec-state">待機中</div>
+          <div id="timer" class="timer">00:00:00</div>
+        </div>
+        <button id="recBtn" class="primary">録音を開始</button>
+      </div>
+      <div class="meter"><div id="meterBar" class="meter-bar"></div></div>
+      <p id="error" class="error" hidden></p>
+    </section>
+
+    <section class="card">
+      <h2>設定</h2>
+      <label class="toggle"><input type="checkbox" id="autoRecord" /> Zoom会議の開始時に自動で録音する</label>
+      <label class="toggle"><input type="checkbox" id="includeMic" /> 自分の声（マイク）も録音する</label>
+      <label class="toggle"><input type="checkbox" id="openAtLogin" /> PC起動時に自動で起動する</label>
+      <div class="folder-row">
+        <span>保存先:</span>
+        <code id="saveDir"></code>
+        <button id="chooseFolder">変更</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="list-head">
+        <h2>録音一覧</h2>
+        <button id="openFolder">フォルダを開く</button>
+      </div>
+      <ul id="recordings" class="recordings"></ul>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
