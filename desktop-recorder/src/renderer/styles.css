@@ -79,4 +79,4 @@ button.danger { color: var(--rec); }
 .rec-actions { display: flex; gap: 8px; align-items: center; }
 .rec-actions audio { flex: 1; height: 32px; }
 .empty { color: var(--muted); font-size: 13px; }
-.error { color: var(--rec); font-size: 13px; margin: 8px 0 0; }
+.error { color: var(--rec); font-size: 13px; margin: 8px 0 0; white-space: pre-line; }

@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('recorderApi', {
   chooseFolder: () => ipcRenderer.invoke('settings:choose-folder'),
 
   getZoomStatus: () => ipcRenderer.invoke('zoom:status'),
+  log: (message) => ipcRenderer.invoke('log:write', message),
+  openLog: () => ipcRenderer.invoke('log:open'),
 
   beginRecording: (trigger) => ipcRenderer.invoke('rec:begin', { trigger }),
   writeChunk: (arrayBuffer) => ipcRenderer.invoke('rec:chunk', arrayBuffer),

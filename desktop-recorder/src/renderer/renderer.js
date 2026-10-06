@@ -8,9 +8,18 @@ let starting = false;
 // ---------- Recording ----------
 
 async function captureStreams(includeMic) {
+  const streams = [];
   // System audio (the other participants) via loopback; the video track is unused.
-  const display = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
-  const streams = [display];
+  // If it fails (e.g. macOS permission not granted), keep going with the mic only.
+  try {
+    const display = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+    if (display.getAudioTracks().length === 0) {
+      showError('PCの音声（相手の声）を取得できませんでした。「画面収録とシステムオーディオ録音」の許可を確認してください。');
+    }
+    streams.push(display);
+  } catch (err) {
+    showError(`PCの音声（相手の声）を取得できませんでした。「画面収録とシステムオーディオ録音」の許可を確認してください: ${err.message}`);
+  }
   if (includeMic) {
     try {
       streams.push(
@@ -19,7 +28,7 @@ async function captureStreams(includeMic) {
         })
       );
     } catch (err) {
-      showError(`マイクを取得できませんでした（PC音声のみ録音します）: ${err.message}`);
+      showError(`マイクを取得できませんでした。「マイク」の許可を確認してください: ${err.message}`);
     }
   }
   return streams;
@@ -29,6 +38,7 @@ async function startRecording(trigger) {
   if (session || starting) return;
   starting = true;
   hideError();
+  api.log(`start requested (${trigger})`);
   try {
     const { includeMic } = await api.getSettings();
     const streams = await captureStreams(includeMic);
@@ -144,8 +154,10 @@ function renderZoom(inMeeting) {
 }
 
 function showError(msg) {
-  $('error').textContent = msg;
+  // Several warnings can occur during one start; show them all.
+  $('error').textContent = $('error').hidden ? msg : `${$('error').textContent}\n${msg}`;
   $('error').hidden = false;
+  api.log(`error: ${msg}`);
 }
 
 function hideError() {
@@ -219,6 +231,7 @@ async function renderSettings(settings) {
 
 $('recBtn').onclick = () => (session ? stopRecording() : startRecording('manual'));
 $('openFolder').onclick = () => api.openFolder();
+$('openLog').onclick = () => api.openLog();
 $('chooseFolder').onclick = async () => {
   renderSettings(await api.chooseFolder());
   refreshRecordings();

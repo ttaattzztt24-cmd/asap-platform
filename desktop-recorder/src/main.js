@@ -38,6 +38,15 @@ let current = null; // { stream, filePath, meta }
 const detector = new ZoomDetector();
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+const logPath = () => path.join(app.getPath('userData'), 'recorder.log');
+
+// Plain-text log so failures (permissions, detection) can be diagnosed later.
+function log(...parts) {
+  const line = `[${new Date().toISOString()}] ${parts.join(' ')}\n`;
+  try {
+    fs.appendFileSync(logPath(), line);
+  } catch {}
+}
 
 function loadSettings() {
   try {
@@ -191,6 +200,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('zoom:status', () => ({ inMeeting: detector.inMeeting }));
+  ipcMain.handle('log:write', (_e, message) => log('[renderer]', message));
+  ipcMain.handle('log:open', () => shell.openPath(logPath()));
 
   // Recording is streamed to disk chunk by chunk, so there is no length limit
   // and a crash loses at most the last few seconds.
@@ -205,6 +216,7 @@ function registerIpc() {
     };
     fs.writeFileSync(filePath.replace(/\.webm$/, '.json'), JSON.stringify(current.meta, null, 2));
     updateTray();
+    log('recording started', trigger, filePath);
     notify('録音を開始しました', trigger === 'zoom' ? 'Zoom会議を検知しました' : '手動で開始しました');
     return { filePath };
   });
@@ -223,6 +235,7 @@ function registerIpc() {
     rec.meta.durationSec = Math.round((endedAt - new Date(rec.meta.startedAt)) / 1000);
     return new Promise((resolve) => {
       rec.stream.end(() => {
+        log('recording saved', rec.filePath, `${rec.meta.durationSec}s`);
         fs.writeFileSync(rec.filePath.replace(/\.webm$/, '.json'), JSON.stringify(rec.meta, null, 2));
         updateTray();
         const min = Math.floor(rec.meta.durationSec / 60);
@@ -251,11 +264,14 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
-  detector.on('meeting-start', () => {
+  log('app started', process.platform, process.getSystemVersion(), 'saveDir=' + settings.saveDir);
+  detector.on('meeting-start', (reason) => {
+    log('zoom meeting detected', reason);
     send('zoom:status', { inMeeting: true });
     if (settings.autoRecord) send('control:start', { trigger: 'zoom' });
   });
-  detector.on('meeting-end', () => {
+  detector.on('meeting-end', (reason) => {
+    log('zoom meeting ended', reason);
     send('zoom:status', { inMeeting: false });
     if (current?.meta.trigger === 'zoom') send('control:stop');
   });
