@@ -2,12 +2,26 @@ const api = window.recorderApi;
 const $ = (id) => document.getElementById(id);
 
 const CHUNK_MS = 5000;
+// Opus at 128 kbps keeps speech and system audio clear (about 58 MB per hour).
+const AUDIO_BITS_PER_SECOND = 128000;
 let session = null; // { recorder, streams, audioCtx, startedAt, writeChain, meterRaf, timerId }
 let starting = false;
 
 // ---------- Recording ----------
 
-async function captureStreams(includeMic) {
+// Picks the mic chosen in settings (by ID, then by name), or null for the OS default.
+async function resolveMicDeviceId({ micDeviceId, micLabel }) {
+  if (!micDeviceId && !micLabel) return null;
+  const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  const match = mics.find((d) => d.deviceId === micDeviceId) || mics.find((d) => micLabel && d.label === micLabel);
+  if (!match) {
+    showError(`設定したマイク「${micLabel || micDeviceId}」が見つからないため、Macの設定のマイクで録音します。`);
+    return null;
+  }
+  return match.deviceId;
+}
+
+async function captureStreams(settings) {
   const streams = [];
   // System audio (the other participants) via loopback; the video track is unused.
   // If it fails (e.g. macOS permission not granted), keep going with the mic only.
@@ -20,13 +34,25 @@ async function captureStreams(includeMic) {
   } catch (err) {
     showError(`PCの音声（相手の声）を取得できませんでした。「画面収録とシステムオーディオ録音」の許可を確認してください: ${err.message}`);
   }
-  if (includeMic) {
+  if (settings.includeMic) {
     try {
-      streams.push(
-        await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
-        })
-      );
+      const deviceId = await resolveMicDeviceId(settings);
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          // Echo cancellation only removes sound this app itself plays, so here it
+          // just degrades the voice. Keep light noise suppression and gain control.
+          echoCancellation: false,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000,
+        },
+      });
+      const label = mic.getAudioTracks()[0]?.label || '不明';
+      $('micInUse').textContent = `録音中のマイク: ${label}`;
+      api.log(`mic: ${label}`);
+      streams.push(mic);
     } catch (err) {
       showError(`マイクを取得できませんでした。「マイク」の許可を確認してください: ${err.message}`);
     }
@@ -40,8 +66,8 @@ async function startRecording(trigger) {
   hideError();
   api.log(`start requested (${trigger})`);
   try {
-    const { includeMic } = await api.getSettings();
-    const streams = await captureStreams(includeMic);
+    const settings = await api.getSettings();
+    const streams = await captureStreams(settings);
 
     // Mix system audio and mic into a single track.
     const audioCtx = new AudioContext();
@@ -61,7 +87,7 @@ async function startRecording(trigger) {
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : 'audio/webm';
-    const recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 64000 });
+    const recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
 
     await api.beginRecording(trigger);
     session = {
@@ -143,6 +169,7 @@ function renderState() {
   $('recBtn').textContent = on ? '録音を停止' : '録音を開始';
   $('recBtn').classList.toggle('stop', on);
   if (!on) {
+    $('micInUse').textContent = '';
     $('timer').textContent = '00:00:00';
     $('meterBar').style.width = '0';
   }
@@ -222,9 +249,41 @@ async function refreshRecordings() {
   }
 }
 
+// Fills the mic picker. Device names are only visible after mic permission was
+// granted once, so ask briefly if they come back blank.
+async function refreshMicList() {
+  let mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  if (mics.length && mics.every((d) => !d.label)) {
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tmp.getTracks().forEach((t) => t.stop());
+      mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    } catch {}
+  }
+  const { micDeviceId, micLabel } = await api.getSettings();
+  const select = $('micSelect');
+  select.replaceChildren();
+  const def = new Option('Macの設定と同じマイク（既定）', '');
+  select.append(def);
+  for (const m of mics) {
+    if (m.deviceId === 'default' || m.deviceId === 'communications') continue;
+    select.append(new Option(m.label || 'マイク', m.deviceId));
+  }
+  const chosen = mics.find((d) => d.deviceId === micDeviceId) || mics.find((d) => micLabel && d.label === micLabel);
+  if (chosen) {
+    select.value = chosen.deviceId;
+  } else if (micDeviceId || micLabel) {
+    // Saved mic is unplugged right now: keep showing it so the choice is not lost.
+    const missing = new Option(`${micLabel || 'マイク'}（未接続）`, micDeviceId);
+    select.append(missing);
+    select.value = micDeviceId;
+  }
+}
+
 async function renderSettings(settings) {
   $('autoRecord').checked = settings.autoRecord;
   $('includeMic').checked = settings.includeMic;
+  $('micSelect').disabled = !settings.includeMic;
   $('openAtLogin').checked = settings.openAtLogin;
   $('saveDir').textContent = settings.saveDir;
 }
@@ -233,6 +292,12 @@ async function renderSettings(settings) {
 
 $('recBtn').onclick = () => (session ? stopRecording() : startRecording('manual'));
 $('openFolder').onclick = () => api.openFolder();
+$('micSelect').onchange = async (e) => {
+  const opt = e.target.selectedOptions[0];
+  const micLabel = e.target.value ? opt.textContent.replace(/（未接続）$/, '') : '';
+  renderSettings(await api.setSettings({ micDeviceId: e.target.value, micLabel }));
+};
+navigator.mediaDevices.addEventListener('devicechange', refreshMicList);
 $('openLog').onclick = () => api.openLog();
 $('chooseFolder').onclick = async () => {
   renderSettings(await api.chooseFolder());
@@ -268,6 +333,7 @@ api.onBrowserProblem(({ browser, kind }) => {
 
 (async () => {
   renderSettings(await api.getSettings());
+  refreshMicList();
   renderMeeting((await api.getMeetingStatus()).app);
   renderState();
   refreshRecordings();

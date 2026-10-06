@@ -27,6 +27,10 @@ if (process.platform === 'darwin') {
 const DEFAULT_SETTINGS = {
   autoRecord: true,
   includeMic: true,
+  // '' = follow the OS default input. The label is kept because macOS can
+  // reissue device IDs, and we fall back to matching by name.
+  micDeviceId: '',
+  micLabel: '',
   openAtLogin: false,
   saveDir: path.join(app.getPath('documents'), 'ASAP Recordings'),
 };

@@ -68,6 +68,20 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary.stop { background: var(--rec); border-color: var(--rec); }
 button.danger { color: var(--rec); }
 .toggle { display: block; margin: 8px 0; font-size: 14px; }
+.field { display: grid; gap: 4px; margin: 12px 0 4px; font-size: 14px; }
+.field select {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  max-width: 100%;
+}
+.hint { margin: 0; font-size: 12px; color: var(--muted); }
+.mic-in-use { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.mic-in-use:empty { display: none; }
 .folder-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; }
 .folder-row code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .list-head { display: flex; justify-content: space-between; align-items: center; }
