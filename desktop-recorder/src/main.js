@@ -271,6 +271,11 @@ app.whenReady().then(() => {
     send('meeting:status', { app: meetingApp });
     if (settings.autoRecord) send('control:start', { trigger: meetingApp });
   });
+  detector.on('browsers', (list) => log('running browsers', list));
+  detector.on('browser-problem', (browser, kind, detail) => {
+    log('browser check', browser, kind || 'ok', detail || '');
+    send('meeting:browser-problem', { browser, kind });
+  });
   detector.on('meeting-end', (meetingApp, reason) => {
     log('meeting ended', meetingApp, reason);
     send('meeting:status', { app: null });

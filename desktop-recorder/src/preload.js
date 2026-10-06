@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('recorderApi', {
   deleteRecording: (filePath) => ipcRenderer.invoke('recordings:delete', filePath),
 
   onMeetingStatus: on('meeting:status'),
+  onBrowserProblem: on('meeting:browser-problem'),
   onControlStart: on('control:start'),
   onControlStop: on('control:stop'),
 });

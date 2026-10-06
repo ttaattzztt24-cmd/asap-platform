@@ -16,21 +16,27 @@ const MEET_TITLE = /^Meet\s*[-–]\s*[a-z]{3}-[a-z]{4}-[a-z]{3}/im;
 // AppleScript-capable browsers on macOS, matched against `ps` executable paths.
 // We only script a browser that is already running, so osascript never launches one.
 const MAC_BROWSERS = [
-  { app: 'Google Chrome', exe: /\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome$/m },
-  { app: 'Safari', exe: /\/Safari\.app\/Contents\/MacOS\/Safari$/m },
-  { app: 'Microsoft Edge', exe: /\/Microsoft Edge\.app\/Contents\/MacOS\/Microsoft Edge$/m },
-  { app: 'Brave Browser', exe: /\/Brave Browser\.app\/Contents\/MacOS\/Brave Browser$/m },
-  { app: 'Arc', exe: /\/Arc\.app\/Contents\/MacOS\/Arc$/m },
+  { app: 'Google Chrome', exe: /Google Chrome\.app\/Contents\/MacOS\/Google Chrome\s*$|^Google Chrome\s*$/m },
+  { app: 'Safari', exe: /Safari\.app\/Contents\/MacOS\/Safari\s*$|^Safari\s*$/m },
+  { app: 'Microsoft Edge', exe: /Microsoft Edge\.app\/Contents\/MacOS\/Microsoft Edge\s*$|^Microsoft Edge\s*$/m },
+  { app: 'Brave Browser', exe: /Brave Browser\.app\/Contents\/MacOS\/Brave Browser\s*$|^Brave Browser\s*$/m },
+  { app: 'Arc', exe: /Arc\.app\/Contents\/MacOS\/Arc\s*$|^Arc\s*$/m },
 ];
 
-function run(cmd, args) {
+function exec(cmd, args) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true, timeout: 10000 }, (_err, stdout) => {
-      // lsof exits 1 when nothing matches; stdout is still usable.
-      resolve(stdout || '');
+    execFile(cmd, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true, timeout: 10000 }, (err, stdout, stderr) => {
+      resolve({ stdout: stdout || '', stderr: stderr || (err ? err.message : '') });
     });
   });
 }
+
+// lsof exits 1 when nothing matches; stdout is still usable.
+const run = async (cmd, args) => (await exec(cmd, args)).stdout;
+
+// Browser scripting problems (e.g. the macOS Automation permission was denied)
+// are reported here so the app can explain them instead of failing silently.
+let reportProblem = () => {};
 
 const listProcesses = () =>
   process.platform === 'win32'
@@ -47,14 +53,28 @@ async function detectZoom(processes) {
   return null;
 }
 
+let lastBrowsers = null;
+let reportBrowsers = () => {};
+
 async function detectMeet(processes) {
   if (process.platform === 'darwin') {
+    const running = MAC_BROWSERS.filter(({ exe }) => exe.test(processes)).map(({ app }) => app).join(', ');
+    if (running !== lastBrowsers) {
+      lastBrowsers = running;
+      reportBrowsers(running || 'none');
+    }
     for (const { app, exe } of MAC_BROWSERS) {
       if (!exe.test(processes)) continue;
-      const urls = await run('osascript', [
+      const { stdout: urls, stderr } = await exec('osascript', [
         '-e',
         `tell application "${app}" to get URL of every tab of every window`,
       ]);
+      if (stderr.trim()) {
+        // -1743: the user has not allowed this app to control the browser.
+        reportProblem(app, /-1743|not authori[sz]ed/i.test(stderr) ? 'not-authorized' : 'error', stderr.trim());
+      } else {
+        reportProblem(app, null);
+      }
       if (MEET_URL.test(urls)) return app;
     }
     return null;
@@ -89,6 +109,14 @@ class MeetingDetector extends EventEmitter {
     this.misses = 0;
     this.timer = null;
     this.busy = false;
+    this.problems = new Map(); // browser -> problem kind
+    reportProblem = (browser, kind, detail) => {
+      if ((this.problems.get(browser) || null) === kind) return;
+      if (kind) this.problems.set(browser, kind);
+      else this.problems.delete(browser);
+      this.emit('browser-problem', browser, kind, detail);
+    };
+    reportBrowsers = (list) => this.emit('browsers', list);
   }
 
   get inMeeting() {

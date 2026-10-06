@@ -245,6 +245,18 @@ for (const key of ['autoRecord', 'includeMic', 'openAtLogin']) {
 api.onControlStart(({ trigger }) => startRecording(trigger));
 api.onControlStop(() => stopRecording());
 api.onMeetingStatus(({ app }) => renderMeeting(app));
+api.onBrowserProblem(({ browser, kind }) => {
+  const box = $('browserProblem');
+  if (kind === 'not-authorized') {
+    box.textContent =
+      `Google Meetを検知するには「${browser}」の許可が必要です。` +
+      `システム設定 →「プライバシーとセキュリティ」→「オートメーション」で、` +
+      `ASAP Meeting Recorder の下の「${browser}」をオンにしてから、アプリを開き直してください。`;
+  } else if (kind) {
+    box.textContent = `「${browser}」のタブを確認できませんでした。「ログを開く」の内容を確認してください。`;
+  }
+  box.hidden = !kind;
+});
 
 (async () => {
   renderSettings(await api.getSettings());
