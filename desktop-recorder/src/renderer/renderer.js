@@ -276,6 +276,12 @@ async function refreshRecordings() {
       audio.src = r.fileUrl;
       actions.append(audio);
     }
+    if (!r.recording) {
+      const mp3 = document.createElement('button');
+      mp3.textContent = 'MP3でダウンロード';
+      mp3.onclick = () => downloadMp3(r, mp3);
+      actions.append(mp3);
+    }
     const reveal = document.createElement('button');
     reveal.textContent = '場所を表示';
     reveal.onclick = () => api.reveal(r.filePath);
@@ -295,6 +301,37 @@ async function refreshRecordings() {
 
     li.append(meta, actions);
     ul.append(li);
+  }
+}
+
+// Converts one recording to MP3 in the Downloads folder, showing progress on the button.
+async function downloadMp3(r, button) {
+  if (button.disabled) return;
+  button.disabled = true;
+  const label = button.textContent;
+  let job = null;
+  try {
+    job = await api.exportBegin(r.filePath);
+    button.textContent = 'MP3に変換中… 0%';
+    await window.exportToMp3(
+      {
+        size: job.size,
+        read: async (offset, length) => new Uint8Array(await api.exportRead(r.filePath, offset, length)),
+        write: (bytes) => api.exportWrite(job.id, bytes),
+      },
+      { onProgress: (v) => (button.textContent = `MP3に変換中… ${Math.floor(v * 100)}%`) }
+    );
+    await api.exportEnd(job.id, true);
+    button.textContent = '保存しました ✓';
+    setTimeout(() => {
+      button.textContent = label;
+      button.disabled = false;
+    }, 4000);
+  } catch (err) {
+    if (job) await api.exportEnd(job.id, false);
+    showError(`MP3に変換できませんでした: ${err.message}`);
+    button.textContent = label;
+    button.disabled = false;
   }
 }
 

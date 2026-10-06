@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('recorderApi', {
   openFolder: () => ipcRenderer.invoke('recordings:open-folder'),
   reveal: (filePath) => ipcRenderer.invoke('recordings:reveal', filePath),
   deleteRecording: (filePath) => ipcRenderer.invoke('recordings:delete', filePath),
+  exportBegin: (filePath) => ipcRenderer.invoke('export:begin', filePath),
+  exportRead: (filePath, offset, length) => ipcRenderer.invoke('export:read', filePath, offset, length),
+  exportWrite: (id, data) => ipcRenderer.invoke('export:write', id, data),
+  exportEnd: (id, ok) => ipcRenderer.invoke('export:end', id, ok),
 
   onMeetingStatus: on('meeting:status'),
   onBrowserProblem: on('meeting:browser-problem'),

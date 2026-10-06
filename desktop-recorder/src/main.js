@@ -192,6 +192,23 @@ function listRecordings() {
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
+// Only files directly inside the recordings folder may be read for export.
+function assertRecording(filePath) {
+  if (!filePath.endsWith('.webm') || path.dirname(path.resolve(filePath)) !== path.resolve(settings.saveDir)) {
+    throw new Error('録音フォルダの外のファイルは扱えません');
+  }
+}
+
+function uniquePath(dir, base, ext) {
+  let p = path.join(dir, `${base}${ext}`);
+  for (let i = 2; fs.existsSync(p) || fs.existsSync(`${p}.part`); i++) p = path.join(dir, `${base} (${i})${ext}`);
+  return p;
+}
+
+// MP3 exports in progress: id -> { stream, tmpPath, outPath }.
+const mp3Exports = new Map();
+let mp3ExportSeq = 0;
+
 function registerIpc() {
   ipcMain.handle('settings:get', () => settings);
   ipcMain.handle('settings:set', (_e, patch) => {
@@ -275,6 +292,53 @@ function registerIpc() {
   });
 
   ipcMain.handle('recordings:list', () => listRecordings());
+
+  // MP3 export: the renderer converts; main reads the recording in pieces and
+  // writes the MP3 to Downloads (as .part until finished).
+  ipcMain.handle('export:begin', (_e, filePath) => {
+    assertRecording(filePath);
+    const outPath = uniquePath(app.getPath('downloads'), path.basename(filePath, '.webm'), '.mp3');
+    const tmpPath = `${outPath}.part`;
+    const id = ++mp3ExportSeq;
+    mp3Exports.set(id, { stream: fs.createWriteStream(tmpPath), tmpPath, outPath });
+    log('mp3 export started', filePath, '->', outPath);
+    return { id, outPath, size: fs.statSync(filePath).size };
+  });
+  ipcMain.handle('export:read', async (_e, filePath, offset, length) => {
+    assertRecording(filePath);
+    const fh = await fs.promises.open(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, offset);
+      return buf.subarray(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  });
+  ipcMain.handle('export:write', (_e, id, data) => {
+    const job = mp3Exports.get(id);
+    if (!job) return false;
+    return new Promise((resolve) => job.stream.write(Buffer.from(data), () => resolve(true)));
+  });
+  ipcMain.handle('export:end', (_e, id, ok) => {
+    const job = mp3Exports.get(id);
+    if (!job) return null;
+    mp3Exports.delete(id);
+    return new Promise((resolve) => {
+      job.stream.end(() => {
+        if (!ok) {
+          fs.rmSync(job.tmpPath, { force: true });
+          log('mp3 export failed', job.outPath);
+          return resolve(null);
+        }
+        fs.renameSync(job.tmpPath, job.outPath);
+        log('mp3 export saved', job.outPath);
+        notify('MP3を保存しました', `ダウンロードフォルダ: ${path.basename(job.outPath)}`);
+        shell.showItemInFolder(job.outPath);
+        resolve(job.outPath);
+      });
+    });
+  });
   ipcMain.handle('recordings:open-folder', () => shell.openPath(settings.saveDir));
   ipcMain.handle('recordings:reveal', (_e, filePath) => shell.showItemInFolder(filePath));
   ipcMain.handle('recordings:delete', (_e, filePath) => {
