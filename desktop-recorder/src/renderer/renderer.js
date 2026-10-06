@@ -99,7 +99,7 @@ async function captureSystemAudio() {
   }
 }
 
-async function startRecording(trigger) {
+async function startRecording(trigger, title = null) {
   if (session || starting) return;
   starting = true;
   hideError();
@@ -138,7 +138,7 @@ async function startRecording(trigger) {
       : 'audio/webm';
     s.recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
 
-    await api.beginRecording(trigger);
+    await api.beginRecording(trigger, title);
     s.startedAt = Date.now();
     // Chunks are written in order; each write waits for the previous one.
     s.recorder.ondataavailable = (e) => {
@@ -227,6 +227,7 @@ function renderState() {
 }
 
 function renderMeeting(app) {
+  $('addCurrentMeeting').hidden = !app;
   $('meetingBadge').textContent = app ? `会議中: ${APP_LABELS[app]}` : '会議: 未検出';
   $('meetingBadge').classList.toggle('live', Boolean(app));
 }
@@ -259,7 +260,8 @@ async function refreshRecordings() {
     const meta = document.createElement('div');
     meta.className = 'rec-meta';
     const title = document.createElement('strong');
-    title.textContent = new Date(r.startedAt).toLocaleString('ja-JP');
+    const when = new Date(r.startedAt).toLocaleString('ja-JP');
+    title.textContent = r.title ? `${r.title}　${when}` : when;
     const sub = document.createElement('span');
     sub.className = 'sub';
     const dur = r.recording ? '録音中' : r.durationSec != null ? fmtDuration(r.durationSec) : '—';
@@ -370,7 +372,49 @@ async function refreshMicList() {
   }
 }
 
+function renderMeetings(settings) {
+  const listed = settings.recordMode === 'listed';
+  for (const radio of document.querySelectorAll('input[name="recordMode"]')) {
+    radio.checked = radio.value === (listed ? 'listed' : 'all');
+    radio.disabled = !settings.autoRecord;
+  }
+  $('meetingsBox').hidden = !listed;
+  const ul = $('meetings');
+  ul.replaceChildren();
+  if (!settings.meetings.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'まだ会議が登録されていません。下にリンクを貼り付けて追加してください。';
+    ul.append(li);
+  }
+  for (const m of settings.meetings) {
+    const li = document.createElement('li');
+    const kind = document.createElement('span');
+    kind.className = `kind ${m.kind}`;
+    kind.textContent = m.kind === 'zoom' ? 'Zoom' : 'Meet';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = m.name;
+    const id = document.createElement('span');
+    id.className = 'id';
+    id.textContent = m.kind === 'zoom' ? `ID ${m.id}` : m.id;
+    id.title = m.link || m.id;
+    const del = document.createElement('button');
+    del.className = 'danger';
+    del.textContent = '削除';
+    del.onclick = async () => renderSettings(await api.removeMeeting(m.kind, m.id));
+    li.append(kind, name, id, del);
+    ul.append(li);
+  }
+}
+
+function showMeetingError(msg) {
+  $('meetingError').textContent = msg;
+  $('meetingError').hidden = !msg;
+}
+
 async function renderSettings(settings) {
+  renderMeetings(settings);
   $('autoRecord').checked = settings.autoRecord;
   $('includeMic').checked = settings.includeMic;
   $('micSelect').disabled = !settings.includeMic;
@@ -395,6 +439,25 @@ $('micSelect').onchange = async (e) => {
 };
 navigator.mediaDevices.addEventListener('devicechange', refreshMicList);
 $('openLog').onclick = () => api.openLog();
+for (const radio of document.querySelectorAll('input[name="recordMode"]')) {
+  radio.onchange = async () => renderSettings(await api.setSettings({ recordMode: radio.value }));
+}
+$('addMeeting').onclick = async () => {
+  const res = await api.addMeeting($('meetingName').value, $('meetingLink').value);
+  if (res.error) return showMeetingError(res.error);
+  showMeetingError('');
+  $('meetingName').value = '';
+  $('meetingLink').value = '';
+  renderSettings(res.settings);
+};
+$('meetingLink').addEventListener('keydown', (e) => e.key === 'Enter' && $('addMeeting').click());
+$('addCurrentMeeting').onclick = async () => {
+  const res = await api.addCurrentMeeting($('meetingName').value);
+  if (res.error) return showMeetingError(res.error);
+  showMeetingError('');
+  $('meetingName').value = '';
+  renderSettings(res.settings);
+};
 $('chooseFolder').onclick = async () => {
   renderSettings(await api.chooseFolder());
   refreshRecordings();
@@ -403,7 +466,7 @@ for (const key of ['autoRecord', 'includeMic', 'openAtLogin']) {
   $(key).onchange = async (e) => renderSettings(await api.setSettings({ [key]: e.target.checked }));
 }
 
-api.onControlStart(({ trigger }) => startRecording(trigger));
+api.onControlStart(({ trigger, title }) => startRecording(trigger, title));
 api.onControlStop(() => stopRecording());
 api.onMeetingStatus(({ app }) => renderMeeting(app));
 api.onBrowserProblem(({ browser, kind }) => {

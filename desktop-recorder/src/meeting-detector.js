@@ -11,11 +11,16 @@
 //   the front tab.
 const { execFile } = require('child_process');
 const { EventEmitter } = require('events');
+const { zoomIdsFromUrls } = require('./meeting-links');
 
 const ZOOM_MEETING_PROCESS = /cpthost/i;
 const MAC_ZOOM_MEETING_UDP_SOCKETS = 3;
 const MEET_URL = /meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/i;
 const MEET_TITLE = /^Meet\s*[-–]\s*[a-z]{3}-[a-z]{4}-[a-z]{3}/im;
+const MEET_CODE_IN_URL = /meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})/i;
+// A Zoom join page seen this recently still counts as "the meeting being joined":
+// people often close the tab once the Zoom app has taken over.
+const ZOOM_TAB_MEMORY_MS = 15 * 60 * 1000;
 
 // AppleScript-capable browsers on macOS, matched against `ps` executable paths.
 // We only script a browser that is already running, so osascript never launches one.
@@ -58,6 +63,8 @@ function meetTabsScript(app, kind) {
         set r to "unknown"
         ${probe}
         set out to out & u & " " & r & linefeed
+      else if u contains "zoom.us/" then
+        set out to out & u & " zoomtab" & linefeed
       end if
     end repeat
   end repeat
@@ -65,21 +72,28 @@ function meetTabsScript(app, kind) {
 end tell`;
 }
 
-// Interprets the script output. Returns { inCall, jsBlocked }.
+// Interprets the script output.
+// Returns { inCall, jsBlocked, meetCodes (meetings in progress), zoomUrls (Zoom pages open) }.
 function parseMeetTabs(output) {
   let inCall = false;
   let jsBlocked = false;
+  const meetCodes = new Set();
+  const zoomUrls = [];
   for (const line of output.split('\n')) {
+    if (/\szoomtab\s*$/.test(line)) {
+      zoomUrls.push(line.replace(/\szoomtab\s*$/, ''));
+      continue;
+    }
     if (!MEET_URL.test(line)) continue;
-    if (/\sincall\s*$/.test(line)) inCall = true;
-    else if (/\snotincall\s*$/.test(line)) continue;
-    else {
+    if (/\snotincall\s*$/.test(line)) continue;
+    if (!/\sincall\s*$/.test(line)) {
       // Page state unknown (JavaScript from Apple Events is off): trust the URL.
-      inCall = true;
       if (/\sjserror/.test(line)) jsBlocked = true;
     }
+    inCall = true;
+    meetCodes.add(line.match(MEET_CODE_IN_URL)[1].toLowerCase());
   }
-  return { inCall, jsBlocked };
+  return { inCall, jsBlocked, meetCodes: [...meetCodes], zoomUrls };
 }
 
 function exec(cmd, args) {
@@ -122,10 +136,14 @@ async function detectMeet(processes) {
       lastBrowsers = running;
       reportBrowsers(running || 'none');
     }
+    const found = { browser: null, meetCodes: [], zoomUrls: [] };
     for (const { app, kind, exe } of MAC_BROWSERS) {
       if (!exe.test(processes)) continue;
       const { stdout, stderr } = await exec('osascript', ['-e', meetTabsScript(app, kind)]);
-      const { inCall, jsBlocked } = parseMeetTabs(stdout);
+      const { inCall, jsBlocked, meetCodes, zoomUrls } = parseMeetTabs(stdout);
+      found.meetCodes.push(...meetCodes);
+      found.zoomUrls.push(...zoomUrls);
+      if (inCall && !found.browser) found.browser = app;
       if (stderr.trim()) {
         // -1743: the user has not allowed this app to control the browser.
         reportProblem(app, /-1743|not authori[sz]ed/i.test(stderr) ? 'not-authorized' : 'error', stderr.trim());
@@ -134,9 +152,8 @@ async function detectMeet(processes) {
       } else {
         reportProblem(app, null);
       }
-      if (inCall) return app;
     }
-    return null;
+    return found;
   }
   if (process.platform === 'win32') {
     const titles = await run('powershell', [
@@ -144,17 +161,19 @@ async function detectMeet(processes) {
       '-Command',
       'Get-Process chrome,msedge,brave -ErrorAction SilentlyContinue | ForEach-Object { $_.MainWindowTitle }',
     ]);
-    return MEET_TITLE.test(titles) ? 'browser' : null;
+    const meetCodes = [...titles.matchAll(/^Meet\s*[-–]\s*([a-z]{3}-[a-z]{4}-[a-z]{3})/gim)].map((m) => m[1].toLowerCase());
+    return { browser: meetCodes.length ? 'browser' : null, meetCodes, zoomUrls: [] };
   }
-  return null;
+  return { browser: null, meetCodes: [], zoomUrls: [] };
 }
 
 async function detectMeeting() {
   const processes = await listProcesses();
   const [zoom, meet] = await Promise.all([detectZoom(processes), detectMeet(processes)]);
-  if (zoom) return { app: 'zoom', reason: zoom };
-  if (meet) return { app: 'meet', reason: meet };
-  return { app: null, reason: 'none' };
+  const tabs = { meetCodes: meet.meetCodes, zoomUrls: meet.zoomUrls };
+  if (zoom) return { app: 'zoom', reason: zoom, ...tabs };
+  if (meet.browser) return { app: 'meet', reason: meet.browser, ...tabs };
+  return { app: null, reason: 'none', ...tabs };
 }
 
 class MeetingDetector extends EventEmitter {
@@ -165,6 +184,8 @@ class MeetingDetector extends EventEmitter {
     // so a brief network hiccup does not split a recording in two.
     this.endGraceChecks = endGraceChecks;
     this.app = null; // 'zoom' | 'meet' | null
+    this.info = { meetCodes: [], zoomIds: [] }; // which meeting it is, when known
+    this.zoomSeen = new Map(); // Zoom meeting ID -> last time its join page was open
     this.misses = 0;
     this.timer = null;
     this.busy = false;
@@ -188,12 +209,16 @@ class MeetingDetector extends EventEmitter {
       if (this.busy) return;
       this.busy = true;
       try {
-        const { app, reason } = await detectMeeting();
+        const { app, reason, meetCodes, zoomUrls } = await detectMeeting();
+        const now = Date.now();
+        for (const id of zoomIdsFromUrls(zoomUrls)) this.zoomSeen.set(id, now);
+        for (const [id, at] of this.zoomSeen) if (now - at > ZOOM_TAB_MEMORY_MS) this.zoomSeen.delete(id);
+        this.info = { meetCodes, zoomIds: [...this.zoomSeen.keys()] };
         if (app) {
           this.misses = 0;
           if (!this.app) {
             this.app = app;
-            this.emit('meeting-start', app, reason);
+            this.emit('meeting-start', app, reason, this.info);
           }
         } else if (this.app && ++this.misses >= this.endGraceChecks) {
           const ended = this.app;

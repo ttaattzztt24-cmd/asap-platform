@@ -83,6 +83,30 @@ button.danger { color: var(--rec); }
   max-width: 100%;
 }
 .hint { margin: 0; font-size: 12px; color: var(--muted); }
+.choice { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.meetings-box { display: grid; gap: 8px; margin-top: 6px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.meetings { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.meetings li { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.meetings .kind { font-size: 11px; padding: 2px 8px; border-radius: 999px; color: #fff; flex: none; }
+.meetings .kind.zoom { background: #2D8CFF; }
+.meetings .kind.meet { background: #188038; }
+.meetings .name { font-weight: 600; flex: none; }
+.meetings .id { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meetings .empty { color: var(--muted); }
+.add-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.add-row input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  min-width: 0;
+}
+.add-row #meetingName { flex: 1 1 140px; }
+.add-row #meetingLink { flex: 3 1 260px; }
+button.link-button { border: none; background: none; color: var(--accent); padding: 0; justify-self: start; }
 .mic-in-use { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .mic-in-use:empty { display: none; }
 .folder-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; }

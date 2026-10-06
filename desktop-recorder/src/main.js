@@ -16,6 +16,7 @@ const path = require('path');
 const { MeetingDetector } = require('./meeting-detector');
 const { fixWebmDuration } = require('./webm-duration');
 const { readAudioState, pickMeetingMic, labelMatches } = require('./mic-match');
+const { parseMeetingLink, findRegisteredMeeting } = require('./meeting-links');
 
 // macOS: allow system-audio loopback capture through ScreenCaptureKit (macOS 13+).
 if (process.platform === 'darwin') {
@@ -27,6 +28,9 @@ if (process.platform === 'darwin') {
 
 const DEFAULT_SETTINGS = {
   autoRecord: true,
+  // 'all' = every Zoom / Meet meeting, 'listed' = only meetings in `meetings`.
+  recordMode: 'all',
+  meetings: [], // [{ kind: 'zoom' | 'meet', id, name, link }]
   includeMic: true,
   // 'auto' = the mic the meeting app is using, 'default' = OS default input,
   // 'device' = micDeviceId. The label is kept because macOS can reissue
@@ -44,6 +48,7 @@ let tray = null;
 let isQuitting = false;
 let current = null; // { stream, filePath, meta }
 const detector = new MeetingDetector();
+let unregisteredPrompt = null; // kept referenced so its click handler survives GC
 const APP_LABELS = { zoom: 'Zoom', meet: 'Google Meet' };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
@@ -204,6 +209,7 @@ function listRecordings() {
         endedAt: meta.endedAt || null,
         durationSec: meta.durationSec ?? null,
         trigger: meta.trigger || 'unknown',
+        title: meta.title || null,
         recording: current?.filePath === filePath,
       };
     })
@@ -256,24 +262,64 @@ function registerIpc() {
     const label = pick && labels.find((l) => labelMatches(l, pick.name));
     return label ? { label, how: pick.how } : null;
   });
+  // Registered meetings ("record only these").
+  const saveMeetings = (meetings) => {
+    settings = { ...settings, meetings };
+    saveSettings();
+    return settings;
+  };
+  ipcMain.handle('meetings:add', (_e, { name, link }) => {
+    const parsed = parseMeetingLink(link);
+    if (!parsed) return { error: 'Zoom または Google Meet のリンク（または会議ID）を貼り付けてください' };
+    if (settings.meetings.some((m) => m.kind === parsed.kind && m.id === parsed.id)) {
+      return { error: 'この会議はすでに登録されています' };
+    }
+    const fallback = parsed.kind === 'zoom' ? `Zoom ${parsed.id}` : `Meet ${parsed.id}`;
+    const entry = { ...parsed, name: String(name || '').trim() || fallback, link: String(link).trim() };
+    log('meeting registered', entry.kind, entry.id);
+    return { settings: saveMeetings([...settings.meetings, entry]) };
+  });
+  ipcMain.handle('meetings:add-current', (_e, { name }) => {
+    const app_ = detector.app;
+    const id = app_ === 'meet' ? detector.info.meetCodes[0] : app_ === 'zoom' ? detector.info.zoomIds[0] : null;
+    if (!id) {
+      return {
+        error:
+          app_ === 'zoom'
+            ? '今のZoom会議のIDがわかりませんでした。Zoomのリンクを貼り付けて登録してください'
+            : '会議中ではありません',
+      };
+    }
+    if (settings.meetings.some((m) => m.kind === app_ && m.id === id)) return { error: 'この会議はすでに登録されています' };
+    const entry = { kind: app_, id, name: String(name || '').trim() || (app_ === 'zoom' ? `Zoom ${id}` : `Meet ${id}`), link: '' };
+    log('meeting registered (current)', entry.kind, entry.id);
+    return { settings: saveMeetings([...settings.meetings, entry]) };
+  });
+  ipcMain.handle('meetings:remove', (_e, { kind, id }) =>
+    saveMeetings(settings.meetings.filter((m) => !(m.kind === kind && m.id === id)))
+  );
   ipcMain.handle('log:write', (_e, message) => log('[renderer]', message));
   ipcMain.handle('log:open', () => shell.openPath(logPath()));
 
   // Recording is streamed to disk chunk by chunk, so there is no length limit
   // and a crash loses at most the last few seconds.
-  ipcMain.handle('rec:begin', (_e, { trigger }) => {
+  ipcMain.handle('rec:begin', (_e, { trigger, title }) => {
     if (current) return { filePath: current.filePath };
     const startedAt = new Date();
-    const filePath = path.join(settings.saveDir, `${timestampName(startedAt)}.webm`);
+    const safeTitle = title ? `_${String(title).replace(/[\\/:*?"<>|\n\r]+/g, ' ').trim().slice(0, 60)}` : '';
+    const filePath = path.join(settings.saveDir, `${timestampName(startedAt)}${safeTitle}.webm`);
     current = {
       filePath,
       stream: fs.createWriteStream(filePath),
-      meta: { startedAt: startedAt.toISOString(), trigger },
+      meta: { startedAt: startedAt.toISOString(), trigger, ...(title ? { title } : {}) },
     };
     fs.writeFileSync(filePath.replace(/\.webm$/, '.json'), JSON.stringify(current.meta, null, 2));
     updateTray();
     log('recording started', trigger, filePath);
-    notify('録音を開始しました', APP_LABELS[trigger] ? `${APP_LABELS[trigger]}の会議を検知しました` : '手動で開始しました');
+    notify(
+      '録音を開始しました',
+      title ? `「${title}」を録音しています` : APP_LABELS[trigger] ? `${APP_LABELS[trigger]}の会議を検知しました` : '手動で開始しました'
+    );
     return { filePath };
   });
 
@@ -399,10 +445,33 @@ app.whenReady().then(async () => {
   createTray();
 
   log('app started', process.platform, process.getSystemVersion(), 'saveDir=' + settings.saveDir);
-  detector.on('meeting-start', (meetingApp, reason) => {
-    log('meeting detected', meetingApp, reason);
+  detector.on('meeting-start', (meetingApp, reason, info) => {
+    log('meeting detected', meetingApp, reason, JSON.stringify(info));
     send('meeting:status', { app: meetingApp });
-    if (settings.autoRecord) send('control:start', { trigger: meetingApp });
+    if (!settings.autoRecord) return;
+    if (settings.recordMode !== 'listed') {
+      send('control:start', { trigger: meetingApp });
+      return;
+    }
+    const match = findRegisteredMeeting(settings.meetings, meetingApp, info);
+    if (match) {
+      log('registered meeting', match.kind, match.id);
+      send('control:start', { trigger: meetingApp, title: match.name });
+      return;
+    }
+    // Not on the list: stay quiet, but make it one click to record anyway.
+    log('not a registered meeting; not recording');
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: '登録されていない会議です',
+        body: `${APP_LABELS[meetingApp]}の会議を検知しましたが、録音していません。録音するにはここをクリック`,
+      });
+      n.on('click', () => {
+        if (detector.app === meetingApp) send('control:start', { trigger: meetingApp });
+      });
+      unregisteredPrompt = n;
+      n.show();
+    }
   });
   detector.on('browsers', (list) => log('running browsers', list));
   detector.on('browser-problem', (browser, kind, detail) => {

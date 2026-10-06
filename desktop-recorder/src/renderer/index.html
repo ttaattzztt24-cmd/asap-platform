@@ -37,6 +37,22 @@
     <section class="card">
       <h2>設定</h2>
       <label class="toggle"><input type="checkbox" id="autoRecord" /> Zoom / Google Meet の会議が始まったら自動で録音する</label>
+      <div class="field" id="recordModeField">
+        <span>録音する会議</span>
+        <label class="choice"><input type="radio" name="recordMode" value="all" /> すべての会議</label>
+        <label class="choice"><input type="radio" name="recordMode" value="listed" /> 登録した会議だけ</label>
+        <div id="meetingsBox" class="meetings-box" hidden>
+          <ul id="meetings" class="meetings"></ul>
+          <div class="add-row">
+            <input id="meetingName" type="text" placeholder="名前（例: 週次定例）" />
+            <input id="meetingLink" type="text" placeholder="Zoom / Google Meet のリンクを貼り付け" />
+            <button id="addMeeting">追加</button>
+          </div>
+          <button id="addCurrentMeeting" class="link-button" hidden>今参加している会議を登録する</button>
+          <p id="meetingError" class="error" hidden></p>
+          <p class="hint">Google Meet はURLで会議を見分けます。Zoom は、リンクをクリックしたときにブラウザで開く「zoom.us/j/…」のページで見分けるので、登録した会議にはリンクから参加してください。登録していない会議が始まったときは通知が出て、クリックすると録音できます。</p>
+        </div>
+      </div>
       <label class="toggle"><input type="checkbox" id="includeMic" /> 自分の声（マイク）も録音する</label>
       <div class="field">
         <label for="micSelect">録音に使うマイク</label>

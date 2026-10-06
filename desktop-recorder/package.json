@@ -6,7 +6,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/webm-duration.js && node --check src/mic-match.js && node --check src/renderer/renderer.js && node --check src/renderer/webm-demux.js && node --check src/renderer/mp3-export.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/webm-duration.js && node --check src/mic-match.js && node --check src/meeting-links.js && node --check src/renderer/renderer.js && node --check src/renderer/webm-demux.js && node --check src/renderer/mp3-export.js",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "build:native": "mkdir -p native/bin && swiftc -O -target arm64-apple-macos12 native/mic-in-use.swift -o native/bin/mic-in-use-arm64 && swiftc -O -target x86_64-apple-macos12 native/mic-in-use.swift -o native/bin/mic-in-use-x64 && lipo -create native/bin/mic-in-use-arm64 native/bin/mic-in-use-x64 -output native/bin/mic-in-use && rm native/bin/mic-in-use-arm64 native/bin/mic-in-use-x64 && codesign --force --sign - native/bin/mic-in-use"

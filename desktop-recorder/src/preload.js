@@ -14,9 +14,12 @@ contextBridge.exposeInMainWorld('recorderApi', {
   getMeetingStatus: () => ipcRenderer.invoke('meeting:status'),
   log: (message) => ipcRenderer.invoke('log:write', message),
   findMeetingMic: (args) => ipcRenderer.invoke('mic:meeting', args),
+  addMeeting: (name, link) => ipcRenderer.invoke('meetings:add', { name, link }),
+  addCurrentMeeting: (name) => ipcRenderer.invoke('meetings:add-current', { name }),
+  removeMeeting: (kind, id) => ipcRenderer.invoke('meetings:remove', { kind, id }),
   openLog: () => ipcRenderer.invoke('log:open'),
 
-  beginRecording: (trigger) => ipcRenderer.invoke('rec:begin', { trigger }),
+  beginRecording: (trigger, title) => ipcRenderer.invoke('rec:begin', { trigger, title }),
   writeChunk: (arrayBuffer) => ipcRenderer.invoke('rec:chunk', arrayBuffer),
   endRecording: () => ipcRenderer.invoke('rec:end'),
 
