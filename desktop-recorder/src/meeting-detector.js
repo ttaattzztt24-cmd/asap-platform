@@ -3,8 +3,12 @@
 // - Zoom (macOS): CptHost is not reliable, so we also count Zoom's open UDP sockets.
 //   An idle Zoom app holds about 1; a meeting opens several for audio/video.
 // - Google Meet: a browser tab is on a meeting URL (meet.google.com/abc-defg-hij).
-//   macOS reads every tab's URL via AppleScript; Windows can only see the
-//   active tab's title, so there the Meet tab must be the front tab.
+//   The "you left the meeting" page keeps the same URL, so on macOS we also run a
+//   small script inside the Meet tab to check that the call UI is actually showing.
+//   That needs the browser's "Allow JavaScript from Apple Events" setting; without
+//   it we fall back to the URL alone (recording then stops when the tab closes).
+//   Windows can only see the active tab's title, so there the Meet tab must be
+//   the front tab.
 const { execFile } = require('child_process');
 const { EventEmitter } = require('events');
 
@@ -16,12 +20,67 @@ const MEET_TITLE = /^Meet\s*[-–]\s*[a-z]{3}-[a-z]{4}-[a-z]{3}/im;
 // AppleScript-capable browsers on macOS, matched against `ps` executable paths.
 // We only script a browser that is already running, so osascript never launches one.
 const MAC_BROWSERS = [
-  { app: 'Google Chrome', exe: /Google Chrome\.app\/Contents\/MacOS\/Google Chrome\s*$|^Google Chrome\s*$/m },
-  { app: 'Safari', exe: /Safari\.app\/Contents\/MacOS\/Safari\s*$|^Safari\s*$/m },
-  { app: 'Microsoft Edge', exe: /Microsoft Edge\.app\/Contents\/MacOS\/Microsoft Edge\s*$|^Microsoft Edge\s*$/m },
-  { app: 'Brave Browser', exe: /Brave Browser\.app\/Contents\/MacOS\/Brave Browser\s*$|^Brave Browser\s*$/m },
-  { app: 'Arc', exe: /Arc\.app\/Contents\/MacOS\/Arc\s*$|^Arc\s*$/m },
+  { app: 'Google Chrome', kind: 'chromium', exe: /Google Chrome\.app\/Contents\/MacOS\/Google Chrome\s*$|^Google Chrome\s*$/m },
+  { app: 'Safari', kind: 'safari', exe: /Safari\.app\/Contents\/MacOS\/Safari\s*$|^Safari\s*$/m },
+  { app: 'Microsoft Edge', kind: 'chromium', exe: /Microsoft Edge\.app\/Contents\/MacOS\/Microsoft Edge\s*$|^Microsoft Edge\s*$/m },
+  { app: 'Brave Browser', kind: 'chromium', exe: /Brave Browser\.app\/Contents\/MacOS\/Brave Browser\s*$|^Brave Browser\s*$/m },
+  { app: 'Arc', kind: 'url-only', exe: /Arc\.app\/Contents\/MacOS\/Arc\s*$|^Arc\s*$/m },
 ];
+
+// Runs inside the Meet tab. Language-independent signals that the call UI is up:
+// the hang-up button's "call_end" material icon, or participant tiles. Neither
+// exists on the pre-join screen or on the "you left the meeting" page.
+const MEET_IN_CALL_JS =
+  "([...document.querySelectorAll('i,span')].some(e => e.textContent.trim() === 'call_end') || " +
+  "!!document.querySelector('[data-participant-id]')) ? 'incall' : 'notincall'";
+
+// For every Meet tab, print "<url> <incall|notincall|jserror ...>" on its own line.
+function meetTabsScript(app, kind) {
+  const evalJs =
+    kind === 'safari'
+      ? `do JavaScript "${MEET_IN_CALL_JS}" in t`
+      : kind === 'chromium'
+        ? `execute t javascript "${MEET_IN_CALL_JS}"`
+        : null;
+  const probe = evalJs
+    ? `try
+          set r to (${evalJs})
+        on error errMsg
+          set r to "jserror " & errMsg
+        end try`
+    : 'set r to "unknown"';
+  return `tell application "${app}"
+  set out to ""
+  repeat with w in windows
+    repeat with t in tabs of w
+      set u to URL of t
+      if u contains "meet.google.com/" then
+        set r to "unknown"
+        ${probe}
+        set out to out & u & " " & r & linefeed
+      end if
+    end repeat
+  end repeat
+  return out
+end tell`;
+}
+
+// Interprets the script output. Returns { inCall, jsBlocked }.
+function parseMeetTabs(output) {
+  let inCall = false;
+  let jsBlocked = false;
+  for (const line of output.split('\n')) {
+    if (!MEET_URL.test(line)) continue;
+    if (/\sincall\s*$/.test(line)) inCall = true;
+    else if (/\snotincall\s*$/.test(line)) continue;
+    else {
+      // Page state unknown (JavaScript from Apple Events is off): trust the URL.
+      inCall = true;
+      if (/\sjserror/.test(line)) jsBlocked = true;
+    }
+  }
+  return { inCall, jsBlocked };
+}
 
 function exec(cmd, args) {
   return new Promise((resolve) => {
@@ -63,19 +122,19 @@ async function detectMeet(processes) {
       lastBrowsers = running;
       reportBrowsers(running || 'none');
     }
-    for (const { app, exe } of MAC_BROWSERS) {
+    for (const { app, kind, exe } of MAC_BROWSERS) {
       if (!exe.test(processes)) continue;
-      const { stdout: urls, stderr } = await exec('osascript', [
-        '-e',
-        `tell application "${app}" to get URL of every tab of every window`,
-      ]);
+      const { stdout, stderr } = await exec('osascript', ['-e', meetTabsScript(app, kind)]);
+      const { inCall, jsBlocked } = parseMeetTabs(stdout);
       if (stderr.trim()) {
         // -1743: the user has not allowed this app to control the browser.
         reportProblem(app, /-1743|not authori[sz]ed/i.test(stderr) ? 'not-authorized' : 'error', stderr.trim());
+      } else if (jsBlocked) {
+        reportProblem(app, 'js-disabled', stdout.trim());
       } else {
         reportProblem(app, null);
       }
-      if (MEET_URL.test(urls)) return app;
+      if (inCall) return app;
     }
     return null;
   }
@@ -156,4 +215,4 @@ class MeetingDetector extends EventEmitter {
   }
 }
 
-module.exports = { MeetingDetector, detectMeeting, MEET_URL, MEET_TITLE };
+module.exports = { MeetingDetector, detectMeeting, MEET_URL, MEET_TITLE, MEET_IN_CALL_JS, meetTabsScript, parseMeetTabs };

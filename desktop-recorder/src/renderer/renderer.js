@@ -252,6 +252,14 @@ api.onBrowserProblem(({ browser, kind }) => {
       `Google Meetを検知するには「${browser}」の許可が必要です。` +
       `システム設定 →「プライバシーとセキュリティ」→「オートメーション」で、` +
       `ASAP Meeting Recorder の下の「${browser}」をオンにしてから、アプリを開き直してください。`;
+  } else if (kind === 'js-disabled') {
+    const where =
+      browser === 'Safari'
+        ? 'Safariのメニュー「開発」→「Apple EventsからのJavaScriptを許可」'
+        : `${browser}のメニュー「表示」→「開発 / 管理」→「Apple Events からの JavaScript を許可」`;
+    box.textContent =
+      `Google Meetの会議を退出したらすぐに録音を止めるには、${where}をオンにしてください。` +
+      `（オフのままだと、Meetのタブを閉じるまで録音が続きます）`;
   } else if (kind) {
     box.textContent = `「${browser}」のタブを確認できませんでした。「ログを開く」の内容を確認してください。`;
   }
