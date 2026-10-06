@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('recorderApi', {
 
   getMeetingStatus: () => ipcRenderer.invoke('meeting:status'),
   log: (message) => ipcRenderer.invoke('log:write', message),
+  findMeetingMic: (args) => ipcRenderer.invoke('mic:meeting', args),
   openLog: () => ipcRenderer.invoke('log:open'),
 
   beginRecording: (trigger) => ipcRenderer.invoke('rec:begin', { trigger }),

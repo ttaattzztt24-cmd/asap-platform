@@ -6,9 +6,10 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/webm-duration.js && node --check src/renderer/renderer.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/webm-duration.js && node --check src/mic-match.js && node --check src/renderer/renderer.js",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "build:native": "mkdir -p native/bin && swiftc -O -target arm64-apple-macos12 native/mic-in-use.swift -o native/bin/mic-in-use-arm64 && swiftc -O -target x86_64-apple-macos12 native/mic-in-use.swift -o native/bin/mic-in-use-x64 && lipo -create native/bin/mic-in-use-arm64 native/bin/mic-in-use-x64 -output native/bin/mic-in-use && rm native/bin/mic-in-use-arm64 native/bin/mic-in-use-x64 && codesign --force --sign - native/bin/mic-in-use"
   },
   "devDependencies": {
     "electron": "^38.0.0",
@@ -25,7 +26,16 @@
         "NSMicrophoneUsageDescription": "会議の自分の声を録音するためにマイクを使用します。",
         "NSAudioCaptureUsageDescription": "会議の相手の声（PCの音声）を録音するために使用します。",
         "NSAppleEventsUsageDescription": "Google Meetの会議が開いているかを確認するために、ブラウザのタブのURLを読み取ります。"
-      }
+      },
+      "extraResources": [
+        {
+          "from": "native/bin/",
+          "to": "bin/",
+          "filter": [
+            "mic-in-use"
+          ]
+        }
+      ]
     },
     "win": {
       "target": "nsis"

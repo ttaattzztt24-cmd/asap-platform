@@ -24,6 +24,15 @@ jobs:
 
       - run: npm install
 
+      # Native helper that reports which mic Zoom / the browser is using.
+      - run: npm run build:native
+
+      - name: Smoke-test the mic helper
+        run: |
+          ./native/bin/mic-in-use | tee /tmp/mic.json
+          node -e "const s=JSON.parse(require('fs').readFileSync('/tmp/mic.json','utf8')); if(!Array.isArray(s.devices)||!Array.isArray(s.processes)) process.exit(1)"
+          lipo -archs native/bin/mic-in-use
+
       # Package the .app for Apple Silicon and Intel without a Developer ID.
       - run: npx electron-builder --mac dir --arm64 --x64 -c.mac.identity=null
 

@@ -4,25 +4,87 @@ const $ = (id) => document.getElementById(id);
 const CHUNK_MS = 5000;
 // Opus at 128 kbps keeps speech and system audio clear (about 58 MB per hour).
 const AUDIO_BITS_PER_SECOND = 128000;
-let session = null; // { recorder, streams, audioCtx, startedAt, writeChain, meterRaf, timerId }
+// Follow the meeting app's mic this often while recording (auto mode).
+const MIC_FOLLOW_MS = 5000;
+// Echo cancellation only removes sound this app itself plays, so here it just
+// degrades the voice. Keep light noise suppression and gain control.
+const MIC_CONSTRAINTS = {
+  echoCancellation: false,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  sampleRate: 48000,
+};
+const APP_LABELS = { zoom: 'Zoom', meet: 'Google Meet' };
+
+// { recorder, streams, audioCtx, dest, analyser, mic, micTimer, startedAt, writeChain, meterRaf, timerId }
+let session = null;
 let starting = false;
+
+// ---------- Microphone ----------
+
+async function listMics() {
+  return (await navigator.mediaDevices.enumerateDevices()).filter(
+    (d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications'
+  );
+}
+
+// Decides which mic to record from. Returns { deviceId (null = OS default), note }.
+async function chooseMic(settings, trigger, currentLabel = null) {
+  const mics = await listMics();
+  if (settings.micMode === 'device') {
+    const m =
+      mics.find((d) => d.deviceId === settings.micDeviceId) ||
+      mics.find((d) => settings.micLabel && d.label === settings.micLabel);
+    if (m) return { deviceId: m.deviceId, note: '設定で選んだマイク' };
+    showError(`設定したマイク「${settings.micLabel}」が見つからないため、Macの設定のマイクで録音します。`);
+  } else if (settings.micMode === 'auto') {
+    const pick = await api.findMeetingMic({ trigger, currentLabel, labels: mics.map((d) => d.label) });
+    const m = pick && mics.find((d) => d.label === pick.label);
+    if (m) return { deviceId: m.deviceId, note: `${APP_LABELS[trigger] || '会議アプリ'}と同じマイク`, how: pick.how };
+  }
+  return { deviceId: null, note: 'Macの設定のマイク' };
+}
+
+// Opens a mic and mixes it into the recording, replacing the previous one.
+async function attachMic(s, choice) {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { ...(choice.deviceId ? { deviceId: { exact: choice.deviceId } } : {}), ...MIC_CONSTRAINTS },
+  });
+  const track = stream.getAudioTracks()[0];
+  const src = s.audioCtx.createMediaStreamSource(stream);
+  src.connect(s.dest);
+  src.connect(s.analyser);
+  const old = s.mic;
+  s.mic = { stream, src, label: track?.label || '不明', deviceId: track?.getSettings().deviceId || null };
+  if (old) {
+    old.src.disconnect();
+    old.stream.getTracks().forEach((t) => t.stop());
+  }
+  $('micInUse').textContent = `録音中のマイク: ${s.mic.label}（${choice.note}）`;
+  api.log(`mic: ${s.mic.label} (${choice.note}${choice.how ? `, ${choice.how}` : ''})`);
+}
+
+// In auto mode, switch mics when the meeting app switches.
+function followMeetingMic(s, settings, trigger) {
+  let busy = false;
+  s.micTimer = setInterval(async () => {
+    if (busy || session !== s) return;
+    busy = true;
+    try {
+      const choice = await chooseMic(settings, trigger, s.mic?.label);
+      if (choice.deviceId && choice.deviceId !== s.mic?.deviceId && session === s) await attachMic(s, choice);
+    } catch (err) {
+      api.log(`mic follow failed: ${err.message}`);
+    } finally {
+      busy = false;
+    }
+  }, MIC_FOLLOW_MS);
+}
 
 // ---------- Recording ----------
 
-// Picks the mic chosen in settings (by ID, then by name), or null for the OS default.
-async function resolveMicDeviceId({ micDeviceId, micLabel }) {
-  if (!micDeviceId && !micLabel) return null;
-  const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
-  const match = mics.find((d) => d.deviceId === micDeviceId) || mics.find((d) => micLabel && d.label === micLabel);
-  if (!match) {
-    showError(`設定したマイク「${micLabel || micDeviceId}」が見つからないため、Macの設定のマイクで録音します。`);
-    return null;
-  }
-  return match.deviceId;
-}
-
-async function captureStreams(settings) {
-  const streams = [];
+async function captureSystemAudio() {
   // System audio (the other participants) via loopback; the video track is unused.
   // If it fails (e.g. macOS permission not granted), keep going with the mic only.
   try {
@@ -30,34 +92,11 @@ async function captureStreams(settings) {
     if (display.getAudioTracks().length === 0) {
       showError('PCの音声（相手の声）を取得できませんでした。「画面収録とシステムオーディオ録音」の許可を確認してください。');
     }
-    streams.push(display);
+    return display;
   } catch (err) {
     showError(`PCの音声（相手の声）を取得できませんでした。「画面収録とシステムオーディオ録音」の許可を確認してください: ${err.message}`);
+    return null;
   }
-  if (settings.includeMic) {
-    try {
-      const deviceId = await resolveMicDeviceId(settings);
-      const mic = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-          // Echo cancellation only removes sound this app itself plays, so here it
-          // just degrades the voice. Keep light noise suppression and gain control.
-          echoCancellation: false,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-      });
-      const label = mic.getAudioTracks()[0]?.label || '不明';
-      $('micInUse').textContent = `録音中のマイク: ${label}`;
-      api.log(`mic: ${label}`);
-      streams.push(mic);
-    } catch (err) {
-      showError(`マイクを取得できませんでした。「マイク」の許可を確認してください: ${err.message}`);
-    }
-  }
-  return streams;
 }
 
 async function startRecording(trigger) {
@@ -65,68 +104,80 @@ async function startRecording(trigger) {
   starting = true;
   hideError();
   api.log(`start requested (${trigger})`);
+  let s = null;
   try {
     const settings = await api.getSettings();
-    const streams = await captureStreams(settings);
 
     // Mix system audio and mic into a single track.
     const audioCtx = new AudioContext();
     const dest = audioCtx.createMediaStreamDestination();
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 512;
-    let hasAudio = false;
-    for (const s of streams) {
-      if (s.getAudioTracks().length === 0) continue;
-      const src = audioCtx.createMediaStreamSource(new MediaStream(s.getAudioTracks()));
-      src.connect(dest);
-      src.connect(analyser);
-      hasAudio = true;
+    s = { audioCtx, dest, analyser, streams: [], mic: null, writeChain: Promise.resolve() };
+
+    const display = await captureSystemAudio();
+    if (display) {
+      s.streams.push(display);
+      if (display.getAudioTracks().length) {
+        const src = audioCtx.createMediaStreamSource(new MediaStream(display.getAudioTracks()));
+        src.connect(dest);
+        src.connect(analyser);
+      }
     }
-    if (!hasAudio) throw new Error('録音できる音声が見つかりませんでした');
+    if (settings.includeMic) {
+      try {
+        await attachMic(s, await chooseMic(settings, trigger));
+      } catch (err) {
+        showError(`マイクを取得できませんでした。「マイク」の許可を確認してください: ${err.message}`);
+      }
+    }
+    if (!display?.getAudioTracks().length && !s.mic) throw new Error('録音できる音声が見つかりませんでした');
 
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : 'audio/webm';
-    const recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
+    s.recorder = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
 
     await api.beginRecording(trigger);
-    session = {
-      recorder,
-      streams,
-      audioCtx,
-      analyser,
-      startedAt: Date.now(),
-      // Chunks are written in order; each write waits for the previous one.
-      writeChain: Promise.resolve(),
-    };
-    recorder.ondataavailable = (e) => {
+    s.startedAt = Date.now();
+    // Chunks are written in order; each write waits for the previous one.
+    s.recorder.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
-      const s = session;
       s.writeChain = s.writeChain
         .then(() => e.data.arrayBuffer())
         .then((buf) => api.writeChunk(buf))
         .catch((err) => showError(`書き込みエラー: ${err.message}`));
     };
-    recorder.start(CHUNK_MS);
+    s.recorder.start(CHUNK_MS);
+    session = s;
+    if (settings.includeMic && settings.micMode === 'auto') followMeetingMic(s, settings, trigger);
     startUiLoop();
   } catch (err) {
     showError(`録音を開始できませんでした: ${err.message}`);
+    if (s && session !== s) releaseCapture(s);
   } finally {
     starting = false;
     renderState();
   }
 }
 
+function releaseCapture(s) {
+  clearInterval(s.micTimer);
+  s.streams.forEach((st) => st.getTracks().forEach((t) => t.stop()));
+  s.mic?.stream.getTracks().forEach((t) => t.stop());
+  s.audioCtx.close().catch(() => {});
+}
+
 async function stopRecording() {
   if (!session) return;
   const s = session;
+  clearInterval(s.micTimer);
   await new Promise((resolve) => {
     s.recorder.onstop = resolve;
     s.recorder.stop();
   });
   await s.writeChain;
-  s.streams.forEach((st) => st.getTracks().forEach((t) => t.stop()));
-  await s.audioCtx.close();
+  releaseCapture(s);
   cancelAnimationFrame(s.meterRaf);
   clearInterval(s.timerId);
   session = null;
@@ -174,8 +225,6 @@ function renderState() {
     $('meterBar').style.width = '0';
   }
 }
-
-const APP_LABELS = { zoom: 'Zoom', meet: 'Google Meet' };
 
 function renderMeeting(app) {
   $('meetingBadge').textContent = app ? `会議中: ${APP_LABELS[app]}` : '会議: 未検出';
@@ -260,23 +309,27 @@ async function refreshMicList() {
       mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
     } catch {}
   }
-  const { micDeviceId, micLabel } = await api.getSettings();
+  const { micMode, micDeviceId, micLabel } = await api.getSettings();
   const select = $('micSelect');
-  select.replaceChildren();
-  const def = new Option('Macの設定と同じマイク（既定）', '');
-  select.append(def);
+  select.replaceChildren(
+    new Option('Zoom / Meet と同じマイクを自動で使う（おすすめ）', 'auto'),
+    new Option('Macの設定と同じマイク', 'default')
+  );
   for (const m of mics) {
     if (m.deviceId === 'default' || m.deviceId === 'communications') continue;
-    select.append(new Option(m.label || 'マイク', m.deviceId));
+    select.append(new Option(m.label || 'マイク', `device:${m.deviceId}`));
+  }
+  if (micMode !== 'device') {
+    select.value = micMode === 'default' ? 'default' : 'auto';
+    return;
   }
   const chosen = mics.find((d) => d.deviceId === micDeviceId) || mics.find((d) => micLabel && d.label === micLabel);
   if (chosen) {
-    select.value = chosen.deviceId;
-  } else if (micDeviceId || micLabel) {
+    select.value = `device:${chosen.deviceId}`;
+  } else {
     // Saved mic is unplugged right now: keep showing it so the choice is not lost.
-    const missing = new Option(`${micLabel || 'マイク'}（未接続）`, micDeviceId);
-    select.append(missing);
-    select.value = micDeviceId;
+    select.append(new Option(`${micLabel || 'マイク'}（未接続）`, `device:${micDeviceId}`));
+    select.value = `device:${micDeviceId}`;
   }
 }
 
@@ -293,9 +346,15 @@ async function renderSettings(settings) {
 $('recBtn').onclick = () => (session ? stopRecording() : startRecording('manual'));
 $('openFolder').onclick = () => api.openFolder();
 $('micSelect').onchange = async (e) => {
-  const opt = e.target.selectedOptions[0];
-  const micLabel = e.target.value ? opt.textContent.replace(/（未接続）$/, '') : '';
-  renderSettings(await api.setSettings({ micDeviceId: e.target.value, micLabel }));
+  const value = e.target.value;
+  const patch = value.startsWith('device:')
+    ? {
+        micMode: 'device',
+        micDeviceId: value.slice('device:'.length),
+        micLabel: e.target.selectedOptions[0].textContent.replace(/（未接続）$/, ''),
+      }
+    : { micMode: value };
+  renderSettings(await api.setSettings(patch));
 };
 navigator.mediaDevices.addEventListener('devicechange', refreshMicList);
 $('openLog').onclick = () => api.openLog();

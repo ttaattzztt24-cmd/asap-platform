@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { MeetingDetector } = require('./meeting-detector');
 const { fixWebmDuration } = require('./webm-duration');
+const { readAudioState, pickMeetingMic, labelMatches } = require('./mic-match');
 
 // macOS: allow system-audio loopback capture through ScreenCaptureKit (macOS 13+).
 if (process.platform === 'darwin') {
@@ -27,8 +28,10 @@ if (process.platform === 'darwin') {
 const DEFAULT_SETTINGS = {
   autoRecord: true,
   includeMic: true,
-  // '' = follow the OS default input. The label is kept because macOS can
-  // reissue device IDs, and we fall back to matching by name.
+  // 'auto' = the mic the meeting app is using, 'default' = OS default input,
+  // 'device' = micDeviceId. The label is kept because macOS can reissue
+  // device IDs, and we fall back to matching by name.
+  micMode: 'auto',
   micDeviceId: '',
   micLabel: '',
   openAtLogin: false,
@@ -56,7 +59,10 @@ function log(...parts) {
 
 function loadSettings() {
   try {
-    settings = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) };
+    const saved = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    // Before micMode existed, a non-empty micDeviceId meant a manually chosen mic.
+    if (!('micMode' in saved)) saved.micMode = saved.micDeviceId ? 'device' : 'auto';
+    settings = { ...DEFAULT_SETTINGS, ...saved };
   } catch {
     settings = { ...DEFAULT_SETTINGS };
   }
@@ -206,6 +212,15 @@ function registerIpc() {
   });
 
   ipcMain.handle('meeting:status', () => ({ app: detector.app }));
+  // Maps the meeting app's current mic onto one of the renderer's device labels.
+  ipcMain.handle('mic:meeting', async (_e, { trigger, currentLabel, labels }) => {
+    const state = await readAudioState();
+    if (!state) return null;
+    const current = currentLabel && state.devices.find((d) => labelMatches(currentLabel, d.name));
+    const pick = pickMeetingMic(state, { trigger, currentName: current?.name || null });
+    const label = pick && labels.find((l) => labelMatches(l, pick.name));
+    return label ? { label, how: pick.how } : null;
+  });
   ipcMain.handle('log:write', (_e, message) => log('[renderer]', message));
   ipcMain.handle('log:open', () => shell.openPath(logPath()));
 
