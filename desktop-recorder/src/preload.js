@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('recorderApi', {
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   chooseFolder: () => ipcRenderer.invoke('settings:choose-folder'),
 
-  getZoomStatus: () => ipcRenderer.invoke('zoom:status'),
+  getMeetingStatus: () => ipcRenderer.invoke('meeting:status'),
   log: (message) => ipcRenderer.invoke('log:write', message),
   openLog: () => ipcRenderer.invoke('log:open'),
 
@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('recorderApi', {
   reveal: (filePath) => ipcRenderer.invoke('recordings:reveal', filePath),
   deleteRecording: (filePath) => ipcRenderer.invoke('recordings:delete', filePath),
 
-  onZoomStatus: on('zoom:status'),
+  onMeetingStatus: on('meeting:status'),
   onControlStart: on('control:start'),
   onControlStop: on('control:stop'),
 });

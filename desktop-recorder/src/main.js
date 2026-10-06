@@ -13,7 +13,7 @@ const {
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { ZoomDetector } = require('./zoom-detector');
+const { MeetingDetector } = require('./meeting-detector');
 
 // macOS: allow system-audio loopback capture through ScreenCaptureKit (macOS 13+).
 if (process.platform === 'darwin') {
@@ -35,7 +35,8 @@ let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let current = null; // { stream, filePath, meta }
-const detector = new ZoomDetector();
+const detector = new MeetingDetector();
+const APP_LABELS = { zoom: 'Zoom', meet: 'Google Meet' };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const logPath = () => path.join(app.getPath('userData'), 'recorder.log');
@@ -199,7 +200,7 @@ function registerIpc() {
     return settings;
   });
 
-  ipcMain.handle('zoom:status', () => ({ inMeeting: detector.inMeeting }));
+  ipcMain.handle('meeting:status', () => ({ app: detector.app }));
   ipcMain.handle('log:write', (_e, message) => log('[renderer]', message));
   ipcMain.handle('log:open', () => shell.openPath(logPath()));
 
@@ -217,7 +218,7 @@ function registerIpc() {
     fs.writeFileSync(filePath.replace(/\.webm$/, '.json'), JSON.stringify(current.meta, null, 2));
     updateTray();
     log('recording started', trigger, filePath);
-    notify('録音を開始しました', trigger === 'zoom' ? 'Zoom会議を検知しました' : '手動で開始しました');
+    notify('録音を開始しました', APP_LABELS[trigger] ? `${APP_LABELS[trigger]}の会議を検知しました` : '手動で開始しました');
     return { filePath };
   });
 
@@ -265,15 +266,16 @@ app.whenReady().then(() => {
   createTray();
 
   log('app started', process.platform, process.getSystemVersion(), 'saveDir=' + settings.saveDir);
-  detector.on('meeting-start', (reason) => {
-    log('zoom meeting detected', reason);
-    send('zoom:status', { inMeeting: true });
-    if (settings.autoRecord) send('control:start', { trigger: 'zoom' });
+  detector.on('meeting-start', (meetingApp, reason) => {
+    log('meeting detected', meetingApp, reason);
+    send('meeting:status', { app: meetingApp });
+    if (settings.autoRecord) send('control:start', { trigger: meetingApp });
   });
-  detector.on('meeting-end', (reason) => {
-    log('zoom meeting ended', reason);
-    send('zoom:status', { inMeeting: false });
-    if (current?.meta.trigger === 'zoom') send('control:stop');
+  detector.on('meeting-end', (meetingApp, reason) => {
+    log('meeting ended', meetingApp, reason);
+    send('meeting:status', { app: null });
+    // Only auto-stop recordings that were auto-started; manual ones stay under user control.
+    if (APP_LABELS[current?.meta.trigger]) send('control:stop');
   });
   // Wait for the renderer to be ready before reporting the first detection.
   mainWindow.webContents.once('did-finish-load', () => detector.start());

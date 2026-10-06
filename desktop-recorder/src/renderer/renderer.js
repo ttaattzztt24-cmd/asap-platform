@@ -148,9 +148,11 @@ function renderState() {
   }
 }
 
-function renderZoom(inMeeting) {
-  $('zoomBadge').textContent = inMeeting ? 'Zoom: 会議中' : 'Zoom: 未検出';
-  $('zoomBadge').classList.toggle('live', inMeeting);
+const APP_LABELS = { zoom: 'Zoom', meet: 'Google Meet' };
+
+function renderMeeting(app) {
+  $('meetingBadge').textContent = app ? `会議中: ${APP_LABELS[app]}` : '会議: 未検出';
+  $('meetingBadge').classList.toggle('live', Boolean(app));
 }
 
 function showError(msg) {
@@ -185,7 +187,7 @@ async function refreshRecordings() {
     const sub = document.createElement('span');
     sub.className = 'sub';
     const dur = r.recording ? '録音中' : r.durationSec != null ? fmtDuration(r.durationSec) : '—';
-    const via = r.trigger === 'zoom' ? 'Zoom自動' : r.trigger === 'manual' ? '手動' : '';
+    const via = APP_LABELS[r.trigger] ? `${APP_LABELS[r.trigger]}自動` : r.trigger === 'manual' ? '手動' : '';
     sub.textContent = [dur, fmtSize(r.size), via].filter(Boolean).join(' · ');
     meta.append(title, sub);
 
@@ -242,11 +244,11 @@ for (const key of ['autoRecord', 'includeMic', 'openAtLogin']) {
 
 api.onControlStart(({ trigger }) => startRecording(trigger));
 api.onControlStop(() => stopRecording());
-api.onZoomStatus(({ inMeeting }) => renderZoom(inMeeting));
+api.onMeetingStatus(({ app }) => renderMeeting(app));
 
 (async () => {
   renderSettings(await api.getSettings());
-  renderZoom((await api.getZoomStatus()).inMeeting);
+  renderMeeting((await api.getMeetingStatus()).app);
   renderState();
   refreshRecordings();
 })();

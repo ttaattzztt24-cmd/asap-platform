@@ -2,11 +2,11 @@
   "name": "asap-meeting-recorder",
   "productName": "ASAP Meeting Recorder",
   "version": "0.1.0",
-  "description": "Zoom会議の開始を検知して、PCの音声とマイクを自動で録音するデスクトップアプリ（録音時間の上限なし）",
+  "description": "Zoom / Google Meet の会議を検知して、PCの音声とマイクを自動で録音するデスクトップアプリ（録音時間の上限なし）",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/zoom-detector.js && node --check src/renderer/renderer.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/meeting-detector.js && node --check src/renderer/renderer.js",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win"
   },
@@ -23,7 +23,8 @@
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "会議の自分の声を録音するためにマイクを使用します。",
-        "NSAudioCaptureUsageDescription": "会議の相手の声（PCの音声）を録音するために使用します。"
+        "NSAudioCaptureUsageDescription": "会議の相手の声（PCの音声）を録音するために使用します。",
+        "NSAppleEventsUsageDescription": "Google Meetの会議が開いているかを確認するために、ブラウザのタブのURLを読み取ります。"
       }
     },
     "win": {
