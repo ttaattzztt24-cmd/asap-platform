@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 from pathlib import Path
 
 import instaloader
@@ -107,19 +108,60 @@ st.header("② リールを取得して文字起こし")
 
 target = st.text_input("対象アカウント名（@なし）").strip().lstrip("@")
 col1, col2 = st.columns(2)
-limit = col1.number_input("最大件数（0 = すべて）", min_value=0, value=20, step=10)
+limit = col1.number_input(
+    "今回取得する件数（0 = すべて）",
+    min_value=0,
+    value=20,
+    step=10,
+    help="新しいものから順に取得します。取得済みのリールは自動でスキップされ、件数に数えません。",
+)
 model_name = col2.selectbox(
     "文字起こしの精度",
     ["small", "medium", "large-v3"],
     index=1,
     format_func=lambda m: {"small": "速い（small）", "medium": "標準（medium）", "large-v3": "高精度・遅い（large-v3）"}[m],
 )
+st.caption("同じアカウントで何度実行しても重複しません。新しく投稿されたリールと、まだ取っていない古いリールだけを取得します。")
 
 start = st.button(
     "開始", type="primary", disabled=ss.loader is None or not target
 )
 if ss.loader is None:
     st.caption("先に ① でログインしてください。")
+
+
+def is_done(folder: Path, code: str) -> bool:
+    txt = folder / f"{code}.txt"
+    return (folder / f"{code}.json").exists() and txt.exists()
+
+
+def load_all_rows(folder: Path) -> list[dict]:
+    """これまでに取得したすべてのリールを、新しい順に並べて返す。"""
+    rows = []
+    for meta_file in folder.glob("*.json"):
+        txt = meta_file.with_suffix(".txt")
+        if not txt.exists():
+            continue
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        rows.append({**meta, "文字起こし": txt.read_text(encoding="utf-8")})
+    return sorted(rows, key=lambda r: r["投稿日"], reverse=True)
+
+
+def iter_reel_codes(profile):
+    """リール一覧からショートコードだけを取り出す。
+
+    get_reels() はリールごとに詳細を取りに行くため、取得済みのものまで
+    アクセスが増えてしまう。一覧だけを読み、詳細は新しいものだけ取りに行く。
+    """
+    it = profile.get_reels()
+    if hasattr(it, "_node_wrapper"):
+        it._node_wrapper = lambda n: n["media"]["code"]
+        it._is_first = None
+        yield from it
+    else:  # Instaloader の内部が変わった場合の保険
+        for post in it:
+            yield post.shortcode
+
 
 if start:
     L = ss.loader
@@ -129,47 +171,51 @@ if start:
 
     status = st.empty()
     progress = st.progress(0.0)
-    table = st.empty()
-    rows = []
+    new_count = skipped = 0
 
     try:
         status.write("アカウント情報を取得中...")
         profile = instaloader.Profile.from_username(L.context, target)
-        for i, post in enumerate(profile.get_reels(), start=1):
-            if limit and i > limit:
+        for code in iter_reel_codes(profile):
+            if is_done(folder, code):
+                skipped += 1
+                status.write(f"取得済みをスキップ中...（{skipped} 本）")
+                continue
+            if limit and new_count >= limit:
                 break
-            code = post.shortcode
-            status.write(f"{i} 本目：ダウンロード中（{code}）")
+
+            n = new_count + 1
+            status.write(f"新規 {n} 本目：ダウンロード中（{code}）")
+            post = instaloader.Post.from_shortcode(L.context, code)
             if not list(folder.glob(f"{code}*.mp4")):
                 L.download_post(post, target=target)
             videos = sorted(folder.glob(f"{code}*.mp4"))
             if not videos:
                 continue
 
-            txt = folder / f"{code}.txt"
-            if txt.exists() and txt.read_text(encoding="utf-8").strip():
-                text = txt.read_text(encoding="utf-8")
-            else:
-                status.write(f"{i} 本目：文字起こし中（{code}）")
-                segments, _ = model.transcribe(
-                    str(videos[0]), language="ja", vad_filter=True
-                )
-                text = "".join(s.text for s in segments).strip()
-                txt.write_text(text, encoding="utf-8")
-
-            rows.append(
-                {
-                    "投稿日": post.date_local.strftime("%Y-%m-%d %H:%M"),
-                    "URL": f"https://www.instagram.com/reel/{code}/",
-                    "キャプション": (post.caption or "").strip(),
-                    "文字起こし": text,
-                }
+            status.write(f"新規 {n} 本目：文字起こし中（{code}）")
+            segments, _ = model.transcribe(
+                str(videos[0]), language="ja", vad_filter=True
             )
-            table.dataframe(rows, use_container_width=True)
+            text = "".join(s.text for s in segments).strip()
+            (folder / f"{code}.txt").write_text(text, encoding="utf-8")
+            meta = {
+                "投稿日": post.date_local.strftime("%Y-%m-%d %H:%M"),
+                "URL": f"https://www.instagram.com/reel/{code}/",
+                "キャプション": (post.caption or "").strip(),
+            }
+            (folder / f"{code}.json").write_text(
+                json.dumps(meta, ensure_ascii=False), encoding="utf-8"
+            )
+
+            new_count += 1
             if limit:
-                progress.progress(min(i / limit, 1.0))
+                progress.progress(min(new_count / limit, 1.0))
         progress.progress(1.0)
-        status.success(f"完了しました（{len(rows)} 本）。保存先：{folder}")
+        status.success(
+            f"完了しました。新しく {new_count} 本を文字起こししました"
+            f"（取得済みでスキップ：{skipped} 本）。保存先：{folder}"
+        )
     except ProfileNotExistsException:
         status.error("対象アカウントが見つかりません。名前を確認してください。")
     except LoginRequiredException:
@@ -184,7 +230,11 @@ if start:
     except InstaloaderException as e:
         status.error(f"エラーが発生しました：{e}")
 
+    rows = load_all_rows(folder)
     if rows:
+        st.write(f"これまでに取得した合計：{len(rows)} 本")
+        st.dataframe(rows, use_container_width=True)
+
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=list(rows[0]))
         writer.writeheader()
