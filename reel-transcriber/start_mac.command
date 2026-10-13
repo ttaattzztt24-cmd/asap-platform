@@ -9,6 +9,13 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! python3 -c "import sys; sys.exit(not ((3,10) <= sys.version_info[:2] <= (3,14)))"; then
+  echo "このアプリは Python 3.10〜3.14 で動きます（3.15 以降はまだ非対応です）。"
+  echo "Python 3.14 をインストールしてから、もう一度起動してください。"
+  read -n 1 -s -r -p "何かキーを押すと閉じます"
+  exit 1
+fi
+
 if [ ! -d .venv ]; then
   echo "初回セットアップ中です（数分かかります）..."
   python3 -m venv .venv || exit 1

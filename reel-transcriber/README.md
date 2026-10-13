@@ -8,7 +8,7 @@ Instagram のアカウントを指定すると、そのアカウントのリー�
 
 ## 準備（最初の1回だけ）
 
-1. **Python をインストール**します：https://www.python.org/downloads/
+1. **Python 3.14 をインストール**します：https://www.python.org/downloads/ （3.15 以降はまだ非対応です）
    - Windows の場合は、インストール画面の **「Add Python to PATH」にチェック**を入れてください。
 2. この `reel-transcriber` フォルダを、PC の好きな場所（デスクトップなど）に置きます。
 

@@ -3,11 +3,18 @@ chcp 65001 >nul
 rem ダブルクリックで起動（Windows用）
 cd /d "%~dp0"
 
-where py >nul 2>nul && (set PY=py) || (set PY=python)
+where py >nul 2>nul && (set PY=py -3.14) || (set PY=python)
 %PY% --version >nul 2>nul || (
-  echo Python が見つかりません。https://www.python.org/downloads/ からインストールしてください。
+  echo Python 3.14 が見つかりません。https://www.python.org/downloads/ からインストールしてください。
   echo インストール時に「Add Python to PATH」にチェックを入れてください。
   start "" "https://www.python.org/downloads/"
+  pause
+  exit /b 1
+)
+
+%PY% -c "import sys; sys.exit(not ((3,10) <= sys.version_info[:2] <= (3,14)))" || (
+  echo このアプリは Python 3.10～3.14 で動きます（3.15 以降はまだ非対応です）。
+  echo Python 3.14 をインストールしてから、もう一度起動してください。
   pause
   exit /b 1
 )
