@@ -15,6 +15,15 @@
         画質
         <select id="quality"></select>
       </label>
+      <label>
+        速度
+        <select id="speed">
+          <option value="6">標準（同時 6 本）</option>
+          <option value="12">高速（同時 12 本）</option>
+          <option value="20">最速（同時 20 本）</option>
+        </select>
+      </label>
+      <p class="muted">エラーが出る場合は「標準」に下げてください。画質を下げるとファイルが小さくなり、さらに早く終わります。</p>
       <label id="convert-row" hidden>
         <input type="checkbox" id="convert" checked>
         MP4 に変換する（おすすめ。オフにすると .ts ファイルで保存します）

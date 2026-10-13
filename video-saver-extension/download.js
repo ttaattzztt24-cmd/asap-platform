@@ -1,7 +1,7 @@
 // HLS 動画のダウンロードページ。
 // プレイリストを読み、セグメントを順に取得して 1 つのファイルにまとめて保存する。
 
-const CONCURRENCY = 6;
+const DEFAULT_CONCURRENCY = 12;
 const RETRIES = 3;
 
 const params = new URLSearchParams(location.search);
@@ -93,7 +93,7 @@ async function loadMediaPlaylist(url) {
   return playlist;
 }
 
-async function downloadSegments(segments, onProgress) {
+async function downloadSegments(segments, concurrency, onProgress) {
   const results = new Array(segments.length);
   let next = 0;
   let done = 0;
@@ -110,7 +110,7 @@ async function downloadSegments(segments, onProgress) {
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, segments.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(concurrency, segments.length) }, worker));
   return results;
 }
 
@@ -138,7 +138,7 @@ async function saveBlob(blob, fileName) {
   await chrome.downloads.download({ url: blobUrl, filename: fileName, saveAs: true });
 }
 
-async function run(mediaUrl, convert) {
+async function run(mediaUrl, convert, concurrency) {
   $('options').hidden = true;
   $('progress').hidden = false;
   showMessage('');
@@ -150,12 +150,14 @@ async function run(mediaUrl, convert) {
   if (!playlist.segments.length) throw new Error('セグメントが見つかりませんでした');
 
   const startedAt = Date.now();
-  const buffers = await downloadSegments(playlist.segments, (done, total, bytes) => {
+  const buffers = await downloadSegments(playlist.segments, concurrency, (done, total, bytes) => {
     $('bar').value = done / total;
-    const mb = (bytes / 1024 / 1024).toFixed(1);
+    const mb = bytes / 1024 / 1024;
     const elapsed = (Date.now() - startedAt) / 1000;
     const remain = done ? (elapsed / done) * (total - done) : 0;
-    $('progress-text').textContent = `${done} / ${total} セグメント ・ ${mb} MB ・ 残り約 ${formatDuration(remain)}`;
+    const speed = elapsed ? (mb / elapsed).toFixed(1) : '0.0';
+    $('progress-text').textContent =
+      `${done} / ${total} セグメント ・ ${mb.toFixed(1)} MB ・ ${speed} MB/秒 ・ 残り約 ${formatDuration(remain)}`;
   });
 
   const baseName = sanitizeFileName(pageTitle);
@@ -214,10 +216,19 @@ async function init() {
     }
   }
 
+  const speedSelect = $('speed');
+  try {
+    speedSelect.value = localStorage.getItem('concurrency') || String(DEFAULT_CONCURRENCY);
+  } catch {}
+  if (!speedSelect.value) speedSelect.value = String(DEFAULT_CONCURRENCY);
+
   $('convert-row').hidden = !needsConvertOption;
   $('options').hidden = false;
   $('start').addEventListener('click', () => {
-    run(getMediaUrl(), $('convert').checked).catch(fail);
+    try {
+      localStorage.setItem('concurrency', speedSelect.value);
+    } catch {}
+    run(getMediaUrl(), $('convert').checked, Number(speedSelect.value)).catch(fail);
   });
 }
 
