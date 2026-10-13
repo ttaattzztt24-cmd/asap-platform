@@ -1,0 +1,29 @@
+body {
+  width: 380px;
+  margin: 0;
+  font: 13px/1.5 system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  color: #202124;
+  background: #fff;
+}
+header { padding: 12px 14px 8px; border-bottom: 1px solid #e0e0e0; }
+h1 { margin: 0; font-size: 15px; }
+.muted { color: #5f6368; margin: 2px 0 0; }
+#page { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#empty { padding: 16px 14px; }
+ul { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+li { padding: 10px 14px; border-bottom: 1px solid #f1f3f4; }
+.row { display: flex; align-items: center; gap: 8px; }
+.tag {
+  flex: none; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
+  background: #e8f0fe; color: #1967d2;
+}
+.tag.video { background: #e6f4ea; color: #137333; }
+.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { font-size: 11px; color: #5f6368; margin-top: 2px; word-break: break-all; }
+.actions { display: flex; gap: 6px; margin-top: 6px; }
+button {
+  font: inherit; padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  border: 1px solid #dadce0; background: #fff; color: #1a73e8;
+}
+button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+button:hover { filter: brightness(0.95); }

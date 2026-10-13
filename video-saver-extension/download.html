@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>動画を保存 - LP Video Saver</title>
+  <link rel="stylesheet" href="download.css">
+</head>
+<body>
+  <main>
+    <h1 id="title">動画を保存</h1>
+    <p id="source" class="muted"></p>
+
+    <section id="options" hidden>
+      <label id="quality-row" hidden>
+        画質
+        <select id="quality"></select>
+      </label>
+      <label id="convert-row" hidden>
+        <input type="checkbox" id="convert" checked>
+        MP4 に変換する（おすすめ。オフにすると .ts ファイルで保存します）
+      </label>
+      <button id="start" class="primary">ダウンロード開始</button>
+    </section>
+
+    <section id="progress" hidden>
+      <progress id="bar" max="1" value="0"></progress>
+      <p id="progress-text" class="muted"></p>
+    </section>
+
+    <p id="message"></p>
+  </main>
+  <script src="hls.js"></script>
+  <script src="vendor/mux-mp4.min.js"></script>
+  <script src="download.js"></script>
+</body>
+</html>
