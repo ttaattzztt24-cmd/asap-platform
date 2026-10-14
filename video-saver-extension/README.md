@@ -51,4 +51,5 @@ HLS は 1 つの動画に対して複数の URL（全体用のものと画質ご
 | `popup.html` / `popup.js` | 検出した動画の一覧を表示する |
 | `download.html` / `download.js` | HLS のセグメントを取得して、1 つのファイルにまとめる |
 | `hls.js` | m3u8 プレイリストのパーサー |
+| `remux.js` | TS → MP4 の変換。途中でタイムスタンプが飛ぶ動画もつなぎ直す |
 | `vendor/mux-mp4.min.js` | MPEG-TS → MP4 の変換（[mux.js](https://github.com/videojs/mux.js) 7.1.0, Apache-2.0） |

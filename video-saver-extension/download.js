@@ -114,25 +114,6 @@ async function downloadSegments(segments, concurrency, onProgress) {
   return results;
 }
 
-// MPEG-TS のセグメント群を MP4 に変換する（mux.js を使用）。
-function transmuxToMp4(tsBuffers) {
-  // mux-mp4.min.js では muxjs.Transmuxer、フル版では muxjs.mp4.Transmuxer として公開されている。
-  const Transmuxer = muxjs.Transmuxer || muxjs.mp4.Transmuxer;
-  const transmuxer = new Transmuxer();
-  const parts = [];
-  let init = null;
-  transmuxer.on('data', (segment) => {
-    if (!init) init = segment.initSegment;
-    parts.push(segment.data);
-  });
-  for (const buf of tsBuffers) {
-    transmuxer.push(new Uint8Array(buf));
-    transmuxer.flush();
-  }
-  if (!init) throw new Error('MP4 への変換に失敗しました');
-  return [init, ...parts];
-}
-
 async function saveBlob(blob, fileName) {
   blobUrl = URL.createObjectURL(blob);
   await chrome.downloads.download({ url: blobUrl, filename: fileName, saveAs: true });
@@ -169,7 +150,7 @@ async function run(mediaUrl, convert, concurrency) {
     $('progress-text').textContent = 'MP4 に変換しています…';
     let parts;
     try {
-      parts = transmuxToMp4(buffers);
+      parts = Remux.transmuxToMp4(muxjs, buffers, playlist.segments).parts;
     } catch (e) {
       console.error(e);
       showMessage('MP4 への変換に失敗したため、.ts 形式で保存します。');

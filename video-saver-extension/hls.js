@@ -64,6 +64,8 @@
     let duration = 0;
     let pendingRange = null;
     let nextOffset = 0;
+    let segDuration = 0;
+    let discontinuity = false;
 
     for (const line of lines) {
       if (line.startsWith('#EXT-X-KEY:')) {
@@ -76,13 +78,18 @@
           byteRange: attrs.BYTERANGE ? parseByteRange(attrs.BYTERANGE, 0) : null,
         };
       } else if (line.startsWith('#EXTINF:')) {
-        duration += parseFloat(line.slice('#EXTINF:'.length)) || 0;
+        segDuration = parseFloat(line.slice('#EXTINF:'.length)) || 0;
+        duration += segDuration;
+      } else if (line.startsWith('#EXT-X-DISCONTINUITY') && !line.startsWith('#EXT-X-DISCONTINUITY-SEQUENCE')) {
+        discontinuity = true;
       } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
         pendingRange = parseByteRange(line.slice('#EXT-X-BYTERANGE:'.length), nextOffset);
       } else if (!line.startsWith('#')) {
-        segments.push({ uri: resolve(line), byteRange: pendingRange });
+        segments.push({ uri: resolve(line), byteRange: pendingRange, duration: segDuration, discontinuity });
         if (pendingRange) nextOffset = pendingRange.offset + pendingRange.length;
         pendingRange = null;
+        segDuration = 0;
+        discontinuity = false;
       }
     }
 
