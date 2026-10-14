@@ -31,3 +31,7 @@ button:hover { filter: brightness(0.95); }
 .pad { padding: 12px 14px; }
 .num { flex: none; font-weight: 600; }
 .version { font-size: 11px; font-weight: 400; color: #5f6368; }
+.tag.playing { background: #fce8e6; color: #c5221f; }
+li.last-played { background: #fef7f6; }
+.label { font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name { color: #5f6368; font-size: 12px; }

@@ -60,10 +60,63 @@ async function updateBadge(tabId, count) {
   }
 }
 
+// URL から「フォルダ部分」（クエリなし）を取り出す。HLS のセグメントはプレイリストと同じフォルダ配下にある。
+function dirOf(url) {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname.slice(0, u.pathname.lastIndexOf('/') + 1);
+  } catch {
+    return null;
+  }
+}
+
+function isSegment(details) {
+  let path;
+  try {
+    path = new URL(details.url).pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+  const ct = getHeader(details.responseHeaders, 'content-type').split(';')[0].trim().toLowerCase();
+  return /\.(ts|m4s|aac)$/.test(path) || ct === 'video/mp2t';
+}
+
+// 再生中の動画を見分けるため、セグメントの通信があった HLS に最終再生時刻を記録する。
+// ストレージへの書き込みは同じタブ・同じフォルダにつき 3 秒に 1 回まで。
+const lastMarked = new Map();
+function markActivity(details) {
+  const dir = dirOf(details.url);
+  if (!dir) return;
+  const memo = `${details.tabId}|${dir}`;
+  const now = Date.now();
+  if (now - (lastMarked.get(memo) || 0) < 3000) return;
+  lastMarked.set(memo, now);
+
+  serialize(async () => {
+    const k = key(details.tabId);
+    const state = (await chrome.storage.session.get(k))[k];
+    if (!state) return;
+    let changed = false;
+    for (const it of state.items) {
+      if (it.kind !== 'hls') continue;
+      const itDir = dirOf(it.url);
+      if (itDir && dir.startsWith(itDir)) {
+        it.lastActiveAt = now;
+        changed = true;
+      }
+    }
+    if (changed) await chrome.storage.session.set({ [k]: state });
+  });
+}
+
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId < 0) return;
     if (details.statusCode >= 400) return;
+    if (isSegment(details)) {
+      markActivity(details);
+      return;
+    }
     const kind = classify(details);
     if (!kind) return;
 
