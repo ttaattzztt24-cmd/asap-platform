@@ -185,6 +185,24 @@
   const u16 = (v) => new Uint8Array([(v >> 8) & 0xff, v & 0xff]);
   const ascii = (s) => new Uint8Array([...s].map((c) => c.charCodeAt(0)));
 
+  // 数値の配列を 32bit（wide なら 64bit）の並びに書き出す。
+  // サンプル数が数万〜数十万になるので、引数の展開（...）は使わない。
+  function table(values, wide = false) {
+    const width = wide ? 8 : 4;
+    const out = new Uint8Array(values.length * width);
+    const view = new DataView(out.buffer);
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (wide) {
+        view.setUint32(i * 8, Math.floor(v / 0x100000000));
+        view.setUint32(i * 8 + 4, v % 0x100000000);
+      } else {
+        view.setUint32(i * 4, v >>> 0);
+      }
+    }
+    return out;
+  }
+
   function box(type, ...parts) {
     const body = concat(parts);
     return concat([u32(body.length + 8), ascii(type), body]);
@@ -211,18 +229,18 @@
 
     const parts = [
       track.stsd,
-      fullbox('stts', 0, 0, u32(stts.length), ...stts.flatMap(([n, d]) => [u32(n), u32(d)])),
-      fullbox('stsc', 0, 0, u32(stsc.length), ...stsc.flatMap(([first, n]) => [u32(first), u32(n), u32(1)])),
-      fullbox('stsz', 0, 0, u32(0), u32(s.length), ...s.map((x) => u32(x.data.length))),
+      fullbox('stts', 0, 0, u32(stts.length), table(stts.flat())),
+      fullbox('stsc', 0, 0, u32(stsc.length), table(stsc.flatMap(([first, n]) => [first, n, 1]))),
+      fullbox('stsz', 0, 0, u32(0), u32(s.length), table(s.map((x) => x.data.length))),
       useCo64
-        ? fullbox('co64', 0, 0, u32(chunkOffsets.length), ...chunkOffsets.map(u64))
-        : fullbox('stco', 0, 0, u32(chunkOffsets.length), ...chunkOffsets.map(u32)),
+        ? fullbox('co64', 0, 0, u32(chunkOffsets.length), table(chunkOffsets, true))
+        : fullbox('stco', 0, 0, u32(chunkOffsets.length), table(chunkOffsets)),
     ];
 
     if (s.some((x) => !x.sync)) {
       const sync = [];
       s.forEach((x, i) => x.sync && sync.push(i + 1));
-      parts.push(fullbox('stss', 0, 0, u32(sync.length), ...sync.map(u32)));
+      parts.push(fullbox('stss', 0, 0, u32(sync.length), table(sync)));
     }
 
     if (s.some((x) => x.cto !== 0)) {
@@ -233,7 +251,7 @@
         else ctts.push([1, x.cto]);
       }
       const negative = ctts.some(([, c]) => c < 0);
-      parts.push(fullbox('ctts', negative ? 1 : 0, 0, u32(ctts.length), ...ctts.flatMap(([n, c]) => [u32(n), u32(c >>> 0)])));
+      parts.push(fullbox('ctts', negative ? 1 : 0, 0, u32(ctts.length), table(ctts.flat())));
     }
 
     return box('stbl', ...parts);
