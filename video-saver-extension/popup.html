@@ -9,11 +9,14 @@
     <h1>LP Video Saver</h1>
     <p id="page" class="muted"></p>
   </header>
+  <p id="hint" class="hint" hidden>保存したい動画の「この動画をダウンロード」を押してください。押した動画だけが保存されます。</p>
+  <p id="loading" class="muted pad" hidden>動画の情報を読み込んでいます…</p>
   <ul id="list"></ul>
   <p id="empty" class="muted" hidden>
     動画はまだ検出されていません。<br>
     ページ内の動画を<strong>再生</strong>してから、もう一度開いてください。
   </p>
+  <script src="hls.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

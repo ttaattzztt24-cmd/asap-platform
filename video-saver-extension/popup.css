@@ -27,3 +27,6 @@ button {
 }
 button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
 button:hover { filter: brightness(0.95); }
+.hint { margin: 0; padding: 8px 14px; background: #fef7e0; font-size: 12px; }
+.pad { padding: 12px 14px; }
+.num { flex: none; font-weight: 600; }
