@@ -155,6 +155,20 @@ async function downloadSegments(segments, concurrency, onProgress) {
   return results;
 }
 
+// 断片化 MP4 を普通の MP4 に組み直す。QuickTime などで正しく再生できるようにするため。
+// 失敗した場合は断片化 MP4 のまま保存する（Chrome や VLC では再生できる）。
+function toPlainMp4(init, fragments) {
+  try {
+    const parts = Flatten.flatten(init, fragments);
+    note('出力形式: 通常の MP4');
+    return parts;
+  } catch (e) {
+    console.error(e);
+    note(`出力形式: 断片化 MP4（組み直しに失敗: ${e.message}）`);
+    return [init, ...fragments];
+  }
+}
+
 async function saveBlob(blob, fileName) {
   blobUrl = URL.createObjectURL(blob);
   await chrome.downloads.download({ url: blobUrl, filename: fileName, saveAs: true });
@@ -197,7 +211,7 @@ async function run(mediaUrl, convert, concurrency) {
     const { runs } = Fmp4.normalizeTimestamps(init, buffers, playlist.segments);
     note(`時刻の区切り: ${runs}`);
     describeFmp4Output('出力', init, buffers);
-    await saveBlob(new Blob([init, ...buffers], { type: 'video/mp4' }), `${baseName}.mp4`);
+    await saveBlob(new Blob(toPlainMp4(init, buffers), { type: 'video/mp4' }), `${baseName}.mp4`);
   } else if (convert) {
     $('progress-text').textContent = 'MP4 に変換しています…';
     for (const i of sampleIndexes(buffers.length)) {
@@ -215,7 +229,7 @@ async function run(mediaUrl, convert, concurrency) {
       console.error(e);
       showMessage('MP4 への変換に失敗したため、.ts 形式で保存します。');
     }
-    if (parts) await saveBlob(new Blob(parts, { type: 'video/mp4' }), `${baseName}.mp4`);
+    if (parts) await saveBlob(new Blob(toPlainMp4(parts[0], parts.slice(1)), { type: 'video/mp4' }), `${baseName}.mp4`);
     else await saveBlob(new Blob(buffers, { type: 'video/mp2t' }), `${baseName}.ts`);
   } else {
     await saveBlob(new Blob(buffers, { type: 'video/mp2t' }), `${baseName}.ts`);

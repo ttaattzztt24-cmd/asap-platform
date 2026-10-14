@@ -52,5 +52,6 @@ HLS は 1 つの動画に対して複数の URL（全体用のものと画質ご
 | `download.html` / `download.js` | HLS のセグメントを取得して、1 つのファイルにまとめる |
 | `hls.js` | m3u8 プレイリストのパーサー |
 | `fmp4.js` | fMP4 の時刻を 0 秒から始まるように書き換える |
+| `flatten.js` | 断片化 MP4 を普通の MP4 に組み直す（QuickTime 対応） |
 | `remux.js` | TS → MP4 の変換。途中でタイムスタンプが飛ぶ動画もつなぎ直す |
 | `vendor/mux-mp4.min.js` | MPEG-TS → MP4 の変換（[mux.js](https://github.com/videojs/mux.js) 7.1.0, Apache-2.0） |
