@@ -37,6 +37,12 @@
     </section>
 
     <p id="message"></p>
+
+    <section id="diag" hidden>
+      <p class="muted">うまく保存できなかったときは、下の「診断情報をコピー」を押して、開発者に送ってください。（動画の中身や URL は含まれません）</p>
+      <textarea id="diag-text" rows="10" readonly></textarea>
+      <button id="diag-copy">診断情報をコピー</button>
+    </section>
   </main>
   <script src="hls.js"></script>
   <script src="vendor/mux-mp4.min.js"></script>

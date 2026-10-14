@@ -13,6 +13,47 @@ const $ = (id) => document.getElementById(id);
 let ruleId = null;
 let blobUrl = null;
 
+// 診断情報（不具合の調査用）。映像の中身や URL のトークンは含めない。
+const diag = [];
+function note(line) {
+  diag.push(line);
+}
+
+function fileExt(url) {
+  try {
+    const m = new URL(url).pathname.match(/\.([a-z0-9]+)$/i);
+    return m ? m[1] : '(なし)';
+  } catch {
+    return '?';
+  }
+}
+
+function sampleIndexes(n) {
+  return [...new Set([0, 1, 2, Math.floor(n / 2), n - 2, n - 1].filter((i) => i >= 0 && i < n))];
+}
+
+const sec = (v) => (v === null || v === undefined ? '-' : Number(v).toFixed(3));
+
+function describeFmp4Output(label, init, fragments) {
+  const tracks = Fmp4.probeInit(init);
+  note(`${label} トラック: ${tracks.map((t) => `#${t.id} ${t.handler}/${t.codec} ts=${t.timescale}${t.editList ? ' elst' : ''}`).join(', ') || '(なし)'}`);
+  const scale = new Map(tracks.map((t) => [t.id, t.timescale]));
+  for (const i of sampleIndexes(fragments.length)) {
+    const tf = Fmp4.probeSegment(fragments[i]);
+    note(`${label} [${i}] ${tf.map((t) => `#${t.trackId}=${sec(t.tfdt / (scale.get(t.trackId) || 1))}s`).join(' ') || '(tfdt なし)'}`);
+  }
+}
+
+function showDiagnostics() {
+  const text = [
+    `LP Video Saver v${chrome.runtime.getManifest().version}`,
+    `Chrome: ${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] || '?'}`,
+    ...diag,
+  ].join('\n');
+  $('diag-text').value = text;
+  $('diag').hidden = false;
+}
+
 function showMessage(text, kind = '') {
   const m = $('message');
   m.textContent = text;
@@ -125,6 +166,12 @@ async function run(mediaUrl, convert, concurrency) {
   showMessage('');
 
   const playlist = await loadMediaPlaylist(mediaUrl);
+  note(
+    `メディア: セグメント ${playlist.segments.length} 個, 長さ ${formatDuration(playlist.duration)}, ` +
+      `不連続タグ ${playlist.segments.filter((x) => x.discontinuity).length} 個, ` +
+      `形式 ${playlist.map ? 'fMP4' : 'MPEG-TS'}, 拡張子 .${fileExt(playlist.segments[0]?.uri || '')}, ` +
+      `暗号化 ${playlist.encryption || 'なし'}, 範囲指定 ${playlist.segments.some((x) => x.byteRange) ? 'あり' : 'なし'}`
+  );
   if (playlist.encryption) {
     throw new Error(`この動画は暗号化（${playlist.encryption}）されているため保存できません。`);
   }
@@ -146,14 +193,25 @@ async function run(mediaUrl, convert, concurrency) {
     // fMP4 形式: 初期化セグメント + 各セグメントをつなげると MP4 になる。
     // ただし配信元の時刻が残っているので、0 秒から始まるように書き換える。
     const init = await fetchWithRetry(playlist.map.uri, { byteRange: playlist.map.byteRange });
-    Fmp4.normalizeTimestamps(init, buffers, playlist.segments);
+    describeFmp4Output('入力', init, buffers);
+    const { runs } = Fmp4.normalizeTimestamps(init, buffers, playlist.segments);
+    note(`時刻の区切り: ${runs}`);
+    describeFmp4Output('出力', init, buffers);
     await saveBlob(new Blob([init, ...buffers], { type: 'video/mp4' }), `${baseName}.mp4`);
   } else if (convert) {
     $('progress-text').textContent = 'MP4 に変換しています…';
+    for (const i of sampleIndexes(buffers.length)) {
+      const streams = Remux.probeTs(buffers[i]);
+      note(`入力 [${i}] ${streams.map((x) => `PID${x.pid} ${x.type} pts=${sec(x.pts)}s`).join(', ') || '(ストリームなし)'}`);
+    }
     let parts;
     try {
-      parts = Remux.transmuxToMp4(muxjs, buffers, playlist.segments).parts;
+      const result = Remux.transmuxToMp4(muxjs, buffers, playlist.segments);
+      parts = result.parts;
+      note(`時刻の区切り: ${result.runs}`);
+      describeFmp4Output('出力', parts[0], parts.slice(1));
     } catch (e) {
+      note(`変換エラー: ${e.message}`);
       console.error(e);
       showMessage('MP4 への変換に失敗したため、.ts 形式で保存します。');
     }
@@ -166,6 +224,7 @@ async function run(mediaUrl, convert, concurrency) {
   $('progress-text').textContent =
     `完了（${formatDuration(playlist.duration)}・形式: ${playlist.map ? 'fMP4' : 'MPEG-TS'}・v${chrome.runtime.getManifest().version}）`;
   showMessage('保存を開始しました。保存が終わるまで、このタブは閉じないでください。', 'success');
+  showDiagnostics();
   await removeRefererRule();
 }
 
@@ -186,6 +245,8 @@ async function init() {
 
   if (playlist.type === 'master') {
     if (!playlist.variants.length) throw new Error('画質の候補が見つかりませんでした');
+    note(`マスター: ${playlist.variants.map((v) => `${v.resolution || '?'} ${Math.round(v.bandwidth / 1000)}kbps [${v.codecs || '?'}]${v.audioGroup ? ' audio=' + v.audioGroup : ''}`).join(' / ')}`);
+    note(`別音声トラック: ${playlist.audio.length} 個`);
     const select = $('quality');
     for (const v of playlist.variants) {
       const label = [v.resolution, v.bandwidth ? `${Math.round(v.bandwidth / 1000)} kbps` : ''].filter(Boolean).join(' ・ ');
@@ -218,10 +279,17 @@ async function init() {
 
 function fail(e) {
   console.error(e);
+  note(`エラー: ${e.message || e}`);
+  showDiagnostics();
   $('progress').hidden = true;
   showMessage(e.message || String(e), 'error');
   removeRefererRule();
 }
+
+$('diag-copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('diag-text').value);
+  $('diag-copy').textContent = 'コピーしました';
+});
 
 window.addEventListener('beforeunload', () => {
   removeRefererRule();

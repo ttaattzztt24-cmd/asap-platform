@@ -44,6 +44,7 @@
               bandwidth: Number(attrs.BANDWIDTH) || 0,
               resolution: attrs.RESOLUTION || '',
               audioGroup: attrs.AUDIO || null,
+              codecs: attrs.CODECS || '',
             });
             i = j;
           }

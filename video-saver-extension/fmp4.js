@@ -168,7 +168,40 @@
     return { runs };
   }
 
-  const api = { normalizeTimestamps, readTimescales };
+  // 診断用: 初期化セグメントのトラック一覧（ID・種類・タイムスケール・コーデック・edit list）。
+  function probeInit(init) {
+    const b = new Uint8Array(init);
+    const tracks = [];
+    for (const moov of boxes(b, 0, b.length)) {
+      if (moov.type !== 'moov') continue;
+      for (const trak of boxes(b, moov.body, moov.end)) {
+        if (trak.type !== 'trak') continue;
+        const tkhd = child(b, trak, 'tkhd');
+        const mdia = child(b, trak, 'mdia');
+        const mdhd = mdia && child(b, mdia, 'mdhd');
+        const hdlr = mdia && child(b, mdia, 'hdlr');
+        const minf = mdia && child(b, mdia, 'minf');
+        const stbl = minf && child(b, minf, 'stbl');
+        const stsd = stbl && child(b, stbl, 'stsd');
+        const edts = child(b, trak, 'edts');
+        tracks.push({
+          id: tkhd ? readU32(b, tkhd.body + (b[tkhd.body] === 1 ? 20 : 12)) : null,
+          handler: hdlr ? type(b, hdlr.body + 4) : '?',
+          timescale: mdhd ? readU32(b, mdhd.body + (b[mdhd.body] === 1 ? 20 : 12)) : null,
+          codec: stsd ? type(b, stsd.body + 8) : '?',
+          editList: Boolean(edts),
+        });
+      }
+    }
+    return tracks;
+  }
+
+  // 診断用: セグメントの tfdt（トラック ID ごと、生の値）。書き換え前に呼ぶこと。
+  function probeSegment(buffer) {
+    return findTfdts(new Uint8Array(buffer)).map((t) => ({ trackId: t.trackId, tfdt: t.value }));
+  }
+
+  const api = { normalizeTimestamps, readTimescales, probeInit, probeSegment };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Fmp4 = api;
 })(typeof self !== 'undefined' ? self : this);
