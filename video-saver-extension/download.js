@@ -11,7 +11,7 @@ const pageTitle = params.get('title') || '';
 
 const $ = (id) => document.getElementById(id);
 let ruleId = null;
-let blobUrl = null;
+const blobUrls = [];
 
 // 診断情報（不具合の調査用）。映像の中身や URL のトークンは含めない。
 const diag = [];
@@ -170,11 +170,12 @@ function toPlainMp4(init, fragments) {
 }
 
 async function saveBlob(blob, fileName) {
-  blobUrl = URL.createObjectURL(blob);
-  await chrome.downloads.download({ url: blobUrl, filename: fileName, saveAs: true });
+  const url = URL.createObjectURL(blob);
+  blobUrls.push(url);
+  await chrome.downloads.download({ url, filename: fileName, saveAs: true });
 }
 
-async function run(mediaUrl, convert, concurrency) {
+async function run(mediaUrl, convert, concurrency, outputs) {
   $('options').hidden = true;
   $('progress').hidden = false;
   showMessage('');
@@ -203,6 +204,9 @@ async function run(mediaUrl, convert, concurrency) {
   });
 
   const baseName = sanitizeFileName(pageTitle);
+
+  // まず断片化 MP4（初期化セグメント + 断片）の形にそろえる。動画と MP3 の両方の元になる。
+  let mp4 = null;
   if (playlist.map) {
     // fMP4 形式: 初期化セグメント + 各セグメントをつなげると MP4 になる。
     // ただし配信元の時刻が残っているので、0 秒から始まるように書き換える。
@@ -211,29 +215,56 @@ async function run(mediaUrl, convert, concurrency) {
     const { runs } = Fmp4.normalizeTimestamps(init, buffers, playlist.segments);
     note(`時刻の区切り: ${runs}`);
     describeFmp4Output('出力', init, buffers);
-    await saveBlob(new Blob(toPlainMp4(init, buffers), { type: 'video/mp4' }), `${baseName}.mp4`);
-  } else if (convert) {
+    mp4 = { init, fragments: buffers };
+  } else if (convert || outputs.mp3) {
     $('progress-text').textContent = 'MP4 に変換しています…';
     for (const i of sampleIndexes(buffers.length)) {
       const streams = Remux.probeTs(buffers[i]);
       note(`入力 [${i}] ${streams.map((x) => `PID${x.pid} ${x.type} pts=${sec(x.pts)}s`).join(', ') || '(ストリームなし)'}`);
     }
-    let parts;
     try {
       const result = Remux.transmuxToMp4(muxjs, buffers, playlist.segments);
-      parts = result.parts;
       note(`時刻の区切り: ${result.runs}`);
-      describeFmp4Output('出力', parts[0], parts.slice(1));
+      describeFmp4Output('出力', result.parts[0], result.parts.slice(1));
+      mp4 = { init: result.parts[0], fragments: result.parts.slice(1) };
     } catch (e) {
       note(`変換エラー: ${e.message}`);
       console.error(e);
-      showMessage('MP4 への変換に失敗したため、.ts 形式で保存します。');
+      if (outputs.video && convert) showMessage('MP4 への変換に失敗したため、.ts 形式で保存します。');
     }
-    if (parts) await saveBlob(new Blob(toPlainMp4(parts[0], parts.slice(1)), { type: 'video/mp4' }), `${baseName}.mp4`);
-    else await saveBlob(new Blob(buffers, { type: 'video/mp2t' }), `${baseName}.ts`);
-  } else {
-    await saveBlob(new Blob(buffers, { type: 'video/mp2t' }), `${baseName}.ts`);
   }
+
+  const saved = [];
+  if (outputs.video) {
+    if (mp4 && (playlist.map || convert)) {
+      await saveBlob(new Blob(toPlainMp4(mp4.init, mp4.fragments), { type: 'video/mp4' }), `${baseName}.mp4`);
+      saved.push('動画（MP4）');
+    } else {
+      await saveBlob(new Blob(buffers, { type: 'video/mp2t' }), `${baseName}.ts`);
+      saved.push('動画（.ts）');
+    }
+  }
+
+  if (outputs.mp3) {
+    if (!mp4) throw new Error('音声を取り出せませんでした。');
+    const audio = Flatten.collectTracks(mp4.init, mp4.fragments).find((t) => t.handler === 'soun' && t.samples.length);
+    if (!audio) throw new Error('この動画には音声が入っていません。');
+    $('progress-text').textContent = 'MP3 に変換しています… 0%';
+    const startedMp3 = Date.now();
+    const mp3 = await AudioExport.toMp3(audio, {
+      lamejs,
+      AudioDecoder,
+      EncodedAudioChunk,
+      onProgress: (p) => {
+        $('progress-text').textContent = `MP3 に変換しています… ${Math.round(p * 100)}%`;
+      },
+    });
+    const mp3Bytes = mp3.reduce((n, c) => n + c.length, 0);
+    note(`MP3: ${(mp3Bytes / 1024 / 1024).toFixed(1)} MB, 変換 ${((Date.now() - startedMp3) / 1000).toFixed(0)} 秒`);
+    await saveBlob(new Blob(mp3, { type: 'audio/mpeg' }), `${baseName}.mp3`);
+    saved.push('音声（MP3）');
+  }
+  note(`保存: ${saved.join('、')}`);
 
   $('progress-text').textContent =
     `完了（${formatDuration(playlist.duration)}・形式: ${playlist.map ? 'fMP4' : 'MPEG-TS'}・v${chrome.runtime.getManifest().version}）`;
@@ -281,13 +312,25 @@ async function init() {
   } catch {}
   if (!speedSelect.value) speedSelect.value = String(DEFAULT_CONCURRENCY);
 
+  try {
+    $('save-mp3').checked = localStorage.getItem('save-mp3') === '1';
+  } catch {}
+
   $('convert-row').hidden = !needsConvertOption;
   $('options').hidden = false;
   $('start').addEventListener('click', () => {
     try {
       localStorage.setItem('concurrency', speedSelect.value);
     } catch {}
-    run(getMediaUrl(), $('convert').checked, Number(speedSelect.value)).catch(fail);
+    const outputs = { video: $('save-video').checked, mp3: $('save-mp3').checked };
+    if (!outputs.video && !outputs.mp3) {
+      showMessage('「動画」か「音声（MP3）」の少なくとも一方を選んでください。', 'error');
+      return;
+    }
+    try {
+      localStorage.setItem('save-mp3', outputs.mp3 ? '1' : '');
+    } catch {}
+    run(getMediaUrl(), $('convert').checked, Number(speedSelect.value), outputs).catch(fail);
   });
 }
 
@@ -307,7 +350,7 @@ $('diag-copy').addEventListener('click', async () => {
 
 window.addEventListener('beforeunload', () => {
   removeRefererRule();
-  if (blobUrl) URL.revokeObjectURL(blobUrl);
+  for (const url of blobUrls) URL.revokeObjectURL(url);
 });
 
 init().catch(fail);

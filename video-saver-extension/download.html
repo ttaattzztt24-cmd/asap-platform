@@ -24,6 +24,11 @@
         </select>
       </label>
       <p class="muted">エラーが出る場合は「標準」に下げてください。画質を下げるとファイルが小さくなり、さらに早く終わります。</p>
+      <fieldset class="outputs">
+        <legend>保存するもの</legend>
+        <label><input type="checkbox" id="save-video" checked> 動画（MP4）</label>
+        <label><input type="checkbox" id="save-mp3"> 音声（MP3・128kbps）</label>
+      </fieldset>
       <label id="convert-row" hidden>
         <input type="checkbox" id="convert" checked>
         MP4 に変換する（おすすめ。オフにすると .ts ファイルで保存します）
@@ -49,6 +54,8 @@
   <script src="remux.js"></script>
   <script src="fmp4.js"></script>
   <script src="flatten.js"></script>
+  <script src="vendor/lame.min.js"></script>
+  <script src="audio.js"></script>
   <script src="download.js"></script>
 </body>
 </html>

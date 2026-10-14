@@ -348,7 +348,14 @@
     return parts;
   }
 
-  const api = { flatten };
+  // 初期化セグメントと断片から、トラックごとのサンプル一覧を取り出す（音声の書き出しなどに使う）。
+  function collectTracks(init, fragments) {
+    const { tracks, trex } = parseInit(init);
+    for (const f of fragments) readFragments(f, tracks, trex);
+    return [...tracks.values()];
+  }
+
+  const api = { flatten, collectTracks };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Flatten = api;
 })(typeof self !== 'undefined' ? self : this);

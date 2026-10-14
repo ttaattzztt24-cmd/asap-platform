@@ -20,7 +20,7 @@
 1. 動画のある LP を開く（会員サイトの場合は、閲覧用のアカウントでログインしておく）
 2. **動画を再生する**（再生が始まると拡張機能のアイコンに件数が出ます）
 3. アイコンを押すと、検出した動画の一覧が出る
-4. 「ダウンロード」を押す
+4. 「この動画をダウンロード」を押す（保存画面で「音声（MP3）」にチェックを入れると MP3 も保存できます）
    - **動画**（MP4 など）: そのまま Chrome のダウンロードで保存されます
    - **HLS**: 保存用のタブが開きます。画質を選んで「ダウンロード開始」を押すと、MP4 にまとめて保存します
 
@@ -53,5 +53,7 @@ HLS は 1 つの動画に対して複数の URL（全体用のものと画質ご
 | `hls.js` | m3u8 プレイリストのパーサー |
 | `fmp4.js` | fMP4 の時刻を 0 秒から始まるように書き換える |
 | `flatten.js` | 断片化 MP4 を普通の MP4 に組み直す（QuickTime 対応） |
+| `audio.js` | 音声トラックを MP3 に変換する（Chrome の AudioDecoder + lamejs） |
 | `remux.js` | TS → MP4 の変換。途中でタイムスタンプが飛ぶ動画もつなぎ直す |
 | `vendor/mux-mp4.min.js` | MPEG-TS → MP4 の変換（[mux.js](https://github.com/videojs/mux.js) 7.1.0, Apache-2.0） |
+| `vendor/lame.min.js` | MP3 エンコーダー（[lamejs](https://github.com/zhuker/lamejs) 1.2.1, LGPL-3.0） |
