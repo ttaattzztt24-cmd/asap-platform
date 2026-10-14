@@ -76,6 +76,7 @@ async function main() {
   const k = `tab:${tab.id}`;
   const state = (await chrome.storage.session.get(k))[k] || { items: [] };
 
+  document.getElementById('version').textContent = `v${chrome.runtime.getManifest().version}`;
   document.getElementById('page').textContent = tab.title || tab.url || '';
   const list = document.getElementById('list');
 

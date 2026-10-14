@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LP Video Saver",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "開いているページで再生された動画（MP4 / HLS）を検出して保存します。",
   "permissions": [
     "webRequest",

@@ -143,8 +143,10 @@ async function run(mediaUrl, convert, concurrency) {
 
   const baseName = sanitizeFileName(pageTitle);
   if (playlist.map) {
-    // fMP4 形式: 初期化セグメント + 各セグメントをつなげるとそのまま MP4 になる。
+    // fMP4 形式: 初期化セグメント + 各セグメントをつなげると MP4 になる。
+    // ただし配信元の時刻が残っているので、0 秒から始まるように書き換える。
     const init = await fetchWithRetry(playlist.map.uri, { byteRange: playlist.map.byteRange });
+    Fmp4.normalizeTimestamps(init, buffers, playlist.segments);
     await saveBlob(new Blob([init, ...buffers], { type: 'video/mp4' }), `${baseName}.mp4`);
   } else if (convert) {
     $('progress-text').textContent = 'MP4 に変換しています…';
@@ -161,7 +163,8 @@ async function run(mediaUrl, convert, concurrency) {
     await saveBlob(new Blob(buffers, { type: 'video/mp2t' }), `${baseName}.ts`);
   }
 
-  $('progress-text').textContent = `完了（${formatDuration(playlist.duration)}）`;
+  $('progress-text').textContent =
+    `完了（${formatDuration(playlist.duration)}・形式: ${playlist.map ? 'fMP4' : 'MPEG-TS'}・v${chrome.runtime.getManifest().version}）`;
   showMessage('保存を開始しました。保存が終わるまで、このタブは閉じないでください。', 'success');
   await removeRefererRule();
 }
